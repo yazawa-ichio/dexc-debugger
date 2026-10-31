@@ -1,0 +1,33 @@
+{
+  "name": "DexcDebugger.Tests.Runtime",
+  "rootNamespace": "DexcDebugger.Tests",
+  "references": [
+    "Dexc.Runtime",
+    "Dexc.DebugUI",
+    "Dexc.Remote",
+    "DexcDebugger.Samples.StealthStageDemo.Gameplay",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Core.Runtime"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS",
+    "!DISABLE_DEXC_DEBUGGER"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.ugui",
+      "expression": "1.0.0",
+      "define": "DEXC_HAS_UGUI"
+    }
+  ],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

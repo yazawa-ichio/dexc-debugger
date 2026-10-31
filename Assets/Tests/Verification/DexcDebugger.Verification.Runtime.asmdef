@@ -1,0 +1,22 @@
+{
+  "name": "DexcDebugger.Verification.Runtime",
+  "rootNamespace": "DexcDebugger.Verification",
+  "references": [
+    "Dexc.Runtime",
+    "Dexc.DebugUI",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.InputSystem",
+    "Unity.ugui"
+  ],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [
+    {
+      "name": "com.unity.ugui",
+      "expression": "1.0.0",
+      "define": "DEXC_HAS_UGUI"
+    }
+  ],
+  "noEngineReferences": false
+}

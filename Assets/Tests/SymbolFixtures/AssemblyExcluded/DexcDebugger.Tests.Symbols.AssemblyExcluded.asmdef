@@ -1,0 +1,17 @@
+{
+  "name": "DexcDebugger.Tests.Symbols.AssemblyExcluded",
+  "rootNamespace": "DexcDebugger.Tests.Symbols",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS",
+    "!DISABLE_DEXC_DEBUGGER"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": true
+}
