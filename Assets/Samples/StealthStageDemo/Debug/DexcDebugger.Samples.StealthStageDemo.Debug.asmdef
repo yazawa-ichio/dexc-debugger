@@ -1,0 +1,21 @@
+{
+  "name": "DexcDebugger.Samples.StealthStageDemo.Debug",
+  "rootNamespace": "DexcDebugger.Samples.StealthStageDemo",
+  "references": [
+    "Dexc.Runtime",
+    "Dexc.DebugUI",
+    "DexcDebugger.Samples.StealthStageDemo.Gameplay",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

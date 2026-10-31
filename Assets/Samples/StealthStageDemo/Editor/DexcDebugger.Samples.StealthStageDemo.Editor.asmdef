@@ -1,0 +1,20 @@
+{
+  "name": "DexcDebugger.Samples.StealthStageDemo.Editor",
+  "rootNamespace": "DexcDebugger.Samples.StealthStageDemo.Editor",
+  "references": [
+    "DexcDebugger.Samples.StealthStageDemo.Gameplay"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
