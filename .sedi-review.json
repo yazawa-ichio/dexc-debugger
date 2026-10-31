@@ -1,0 +1,13 @@
+{
+  "base": "master",
+  "twoDot": true,
+  "rule": "unity",
+  "rules": {
+    "unity": [
+      ":(exclude,glob)**/*.cs.meta"
+    ],
+    "code": [
+      ":(glob)**/*.cs"
+    ]
+  }
+}
