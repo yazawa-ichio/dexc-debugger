@@ -1,0 +1,21 @@
+sample-references/
+Logs/
+Library/
+Temp/
+UserSettings/
+.local/
+*.sln
+*.slnx
+*.csproj
+/obj/
+
+# IDE
+.idea/
+.vs/
+.vsconfig
+
+# Unity が生成するもの
+/Assets/InitTestScene*.unity
+/Assets/InitTestScene*.unity.meta
+/Assets/Resources/
+/Assets/Resources.meta
