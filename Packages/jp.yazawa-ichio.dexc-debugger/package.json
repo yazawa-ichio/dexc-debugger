@@ -1,0 +1,9 @@
+{
+  "name": "jp.yazawa-ichio.dexc-debugger",
+  "displayName": "Dexc Debugger",
+  "version": "0.1.0",
+  "unity": "6000.3",
+  "description": "Runtime and Editor foundations for Dexc Debugger.",
+  "license": "MIT",
+  "dependencies": {}
+}

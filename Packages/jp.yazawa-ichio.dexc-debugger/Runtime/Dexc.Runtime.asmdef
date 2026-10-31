@@ -1,0 +1,35 @@
+{
+    "name": "Dexc.Runtime",
+    "rootNamespace": "Dexc",
+    "references": [
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "!DISABLE_DEXC_DEBUGGER"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0",
+            "define": "DEXC_HAS_INPUT_SYSTEM"
+        },
+        {
+            "name": "com.unity.render-pipelines.universal",
+            "expression": "",
+            "define": "DEXC_HAS_URP"
+        },
+        {
+            "name": "com.unity.render-pipelines.universal",
+            "expression": "17.6",
+            "define": "DEXC_URP_COMPATIBILITY_REMOVED"
+        }
+    ],
+    "noEngineReferences": false
+}
