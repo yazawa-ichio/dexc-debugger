@@ -1,0 +1,24 @@
+{
+    "name": "Dexc.DebugUI",
+    "rootNamespace": "Dexc",
+    "references": [
+        "Dexc.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "!DISABLE_DEXC_DEBUGGER"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.ugui",
+            "expression": "1.0.0",
+            "define": "DEXC_HAS_UGUI"
+        }
+    ],
+    "noEngineReferences": false
+}
