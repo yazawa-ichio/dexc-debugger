@@ -1,0 +1,31 @@
+{
+    "name": "Dexc.Remote.Pipeline",
+    "rootNamespace": "Dexc",
+    "references": [
+        "Dexc.Remote",
+        "Dexc.Remote.Protocol",
+        "Unity.Pipeline",
+        "Unity.Pipeline.Attributes"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "!DISABLE_DEXC_DEBUGGER",
+        "UNITY_EDITOR || ENABLE_RUNTIME_PIPELINE_DEV || ENABLE_RUNTIME_PIPELINE",
+        "UNITY_EDITOR || UNITY_INCLUDE_INSTRUMENTATION || ENABLE_PROFILER || ENABLE_RUNTIME_PIPELINE",
+        "UNITY_EDITOR || ENABLE_RUNTIME_PIPELINE_DEV || !UNITY_INCLUDE_INSTRUMENTATION",
+        "UNITY_EDITOR || ENABLE_RUNTIME_PIPELINE_DEV || !ENABLE_PROFILER"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.pipeline",
+            "expression": "",
+            "define": "DEXC_HAS_PIPELINE"
+        }
+    ],
+    "noEngineReferences": false
+}

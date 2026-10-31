@@ -1,0 +1,20 @@
+{
+    "name": "Dexc.Remote",
+    "rootNamespace": "Dexc",
+    "references": [
+        "Dexc.Runtime",
+        "Dexc.DebugUI",
+        "Dexc.Remote.Protocol"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "!DISABLE_DEXC_DEBUGGER"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
