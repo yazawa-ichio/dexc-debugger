@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the IL2CPP autopilot Player, runs it, and talks to it.
-#   run-autopilot-player.sh build
+#   run-autopilot-player.sh build            DEXC_AUTOPILOT_CONFIGURATION=none|ilruntime|both, ilruntime by default
 #   run-autopilot-player.sh refs
 #   run-autopilot-player.sh start | stop
 #   run-autopilot-player.sh load <bot.dll>
@@ -52,7 +52,9 @@ build()
 		fi
 	done
 	cat "$output_directory/build-report.json" 2>/dev/null || true
-	[ "$build_exit" -eq 0 ] && refs
+	if [ "$build_exit" -eq 0 ] && [ "${DEXC_AUTOPILOT_CONFIGURATION:-ilruntime}" != none ]; then
+		refs
+	fi
 	exit "$build_exit"
 }
 

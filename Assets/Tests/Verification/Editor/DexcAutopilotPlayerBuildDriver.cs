@@ -11,12 +11,35 @@ namespace DexcDebugger.Verification
 	/// Builds the IL2CPP Player the autopilot verification loads a bot into. The stage scene is built as it is, so the game
 	/// that runs is the game a player gets. Whatever the project had is put back afterwards.
 	///
-	/// Only the package's interpreter goes in. The symbol has to be defined for the interpreter assembly to compile at all,
-	/// and it brings the rest of the package with it, so <see cref="DexcAutopilotAssemblyFilter"/> takes that out again.
+	/// With both VMs, only the Pipeline package's interpreter goes in. Its symbol has to be defined for that assembly to compile
+	/// at all, and it brings the rest of the package with it, so <see cref="DexcAutopilotAssemblyFilter"/> takes that out again.
 	/// </summary>
 	public static class DexcAutopilotPlayerBuildDriver
 	{
-		const string Symbols = "ENABLE_RUNTIME_PIPELINE;DEXC_AUTOPILOT";
+		public const string WithoutAutopilot = "none";
+		public const string WithBothVms = "both";
+		const string WithILRuntime = "ilruntime";
+
+		/// <summary>none is the game alone, to measure against. ilruntime is the normal build.</summary>
+		public static string Configuration
+		{
+			get
+			{
+				var value = Environment.GetEnvironmentVariable("DEXC_AUTOPILOT_CONFIGURATION");
+				return string.IsNullOrEmpty(value) ? WithILRuntime : value;
+			}
+		}
+
+		static string Symbols
+		{
+			get
+			{
+				if (Configuration == WithoutAutopilot)
+					return string.Empty;
+				return Configuration == WithBothVms ? "ENABLE_RUNTIME_PIPELINE;DEXC_AUTOPILOT" : "DEXC_AUTOPILOT";
+			}
+		}
+
 		const string Scene = "Assets/Samples/StealthStageDemo/Scenes/StealthStageDemo.unity";
 		const string ShaderCarrier = "Assets/Resources/DexcAutopilotShaderCarrier.mat";
 
