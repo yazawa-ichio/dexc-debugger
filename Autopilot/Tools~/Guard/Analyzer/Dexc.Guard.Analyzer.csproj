@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <RoslynDirectory>$(MSBuildToolsPath)\Roslyn\bincore\</RoslynDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CodeAnalysis"><HintPath>$(RoslynDirectory)Microsoft.CodeAnalysis.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Microsoft.CodeAnalysis.CSharp"><HintPath>$(RoslynDirectory)Microsoft.CodeAnalysis.CSharp.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>
