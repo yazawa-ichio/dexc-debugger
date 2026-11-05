@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Dexc.Autopilot.Compiler</AssemblyName>
+    <RootNamespace>Dexc.Autopilot.Compiler</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RoslynDirectory>$(MSBuildToolsPath)\Roslyn\bincore\</RoslynDirectory>
+    <RepositoryRoot>$(MSBuildThisFileDirectory)..\..\..\</RepositoryRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CodeAnalysis"><HintPath>$(RoslynDirectory)Microsoft.CodeAnalysis.dll</HintPath></Reference>
+    <Reference Include="Microsoft.CodeAnalysis.CSharp"><HintPath>$(RoslynDirectory)Microsoft.CodeAnalysis.CSharp.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(RepositoryRoot)Library\PackageCache\com.unity.nuget.mono-cecil@ecb9724e46ff\Mono.Cecil.dll</HintPath></Reference>
+    <Compile Include="..\Guard\Analyzer\PipelineVmAnalyzer.cs" Link="PipelineVmAnalyzer.cs" />
+  </ItemGroup>
+</Project>

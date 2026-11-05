@@ -41,7 +41,30 @@ public static class DexcEvalSnippet
 """
 
 
+def compile_resident(snippet):
+    """Autopilot/Tools~/Compiler, when it is up. None means compile here instead."""
+    if os.environ.get("DEXC_EVAL_GUARD") == "0":
+        return None
+    port = int(os.environ.get("DEXC_COMPILER_PORT", "7891"))
+    request = {"op": "eval", "vm": "pipeline" if pipeline_vm() else "ilruntime", "snippet": snippet}
+    try:
+        # Short, because Windows keeps retrying a closed port for about two seconds.
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2) as connection:
+            connection.settimeout(30)
+            connection.sendall((json.dumps(request) + "\n").encode("utf-8"))
+            with connection.makefile("r", encoding="utf-8") as reader:
+                answer = json.loads(reader.readline())
+    except (OSError, ValueError):
+        return None
+    if answer.get("ok"):
+        return base64.b64decode(answer["assembly"]), None
+    return None, answer.get("compile") or [answer.get("error", "compile failed")]
+
+
 def compile_snippet(snippet, compiler):
+    resident = compile_resident(snippet)
+    if resident is not None:
+        return resident
     # Text before a line holding only @@ goes outside the method, for declaring types.
     types, _, code = snippet.rpartition("\n@@\n")
     body = code + "\nreturn null;" if ";" in code else "return (object)(" + code + ");"
