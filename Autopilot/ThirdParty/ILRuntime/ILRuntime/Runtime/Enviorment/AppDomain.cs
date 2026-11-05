@@ -73,6 +73,12 @@ namespace ILRuntime.Runtime.Enviorment
         Dictionary<string, byte[]> references = new Dictionary<string, byte[]>();
         DebugService debugService;
         AsyncJITCompileWorker jitWorker = new AsyncJITCompileWorker();
+        /// <summary>Dexc: instructions one entry from the host may run. Stops a loop that would otherwise hang the game.</summary>
+        public long StepLimit = long.MaxValue;
+        internal long StepsLeft = long.MaxValue;
+        /// <summary>Dexc: native stack the interpreter may use. Each interpreted call is a native call, and running out kills the process.</summary>
+        public long StackBudget = 512 * 1024;
+        internal long StackFloor;
         int defaultJITFlags;
         List<ModuleDefinition> loadedModules = new List<ModuleDefinition>();
         List<Assembly> referenceAssemblies = new List<Assembly>();

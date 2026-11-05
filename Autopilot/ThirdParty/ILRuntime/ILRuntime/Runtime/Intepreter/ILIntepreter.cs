@@ -86,6 +86,11 @@ namespace ILRuntime.Runtime.Intepreter
         }
         public object Run(ILMethod method, object instance, object[] p)
         {
+            domain.StepsLeft = domain.StepLimit;
+            int stackProbe = 0;
+            long floor = (long)&stackProbe - domain.StackBudget;
+            if (floor > domain.StackFloor)
+                domain.StackFloor = floor;
             AutoList mStack = stack.ManagedStack;
             int mStackBase = mStack.Count;
             StackObject* esp = stack.StackBase;
@@ -112,6 +117,10 @@ namespace ILRuntime.Runtime.Intepreter
         }
         internal StackObject* Execute(ILMethod method, StackObject* esp, out bool unhandledException)
         {
+            // Dexc: see AppDomain.StackBudget.
+            int stackProbe = 0;
+            if ((long)&stackProbe < domain.StackFloor)
+                throw new StackOverflowException("The interpreter ran out of native stack.");
             allowUnboundCLRMethod = domain.AllowUnboundCLRMethod;
 #if DEBUG
             if (method == null)
@@ -282,6 +291,9 @@ namespace ILRuntime.Runtime.Intepreter
                         AppDomain.DebugService.CheckShouldBreak(method, this, insOffset);
 #endif
                         code = ip->Code;
+                        // Dexc: see AppDomain.StepLimit.
+                        if (--domain.StepsLeft < 0)
+                            throw new TimeoutException("The step limit was reached.");
                         switch (code)
                         {
 #region Arguments and Local Variable
