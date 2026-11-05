@@ -635,7 +635,7 @@ namespace ILRuntime.Runtime.Enviorment
                 floatType = GetType("System.Single");
                 doubleType = GetType("System.Double");
                 objectType = GetType("System.Object");
-                jitAttributeType = GetType("ILRuntime.Runtime.ILRuntimeJITAttribute");
+                jitAttributeType = GetType(typeof(ILRuntime.Runtime.ILRuntimeJITAttribute)); // Dexc: a bare name does not resolve on IL2CPP
             }
 #if DEBUG && !DISABLE_ILRUNTIME_DEBUG
             debugService.NotifyModuleLoaded(module.Name);
