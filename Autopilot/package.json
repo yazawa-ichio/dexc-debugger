@@ -1,0 +1,7 @@
+{
+  "name": "jp.yazawa-ichio.dexc-autopilot",
+  "version": "0.0.1",
+  "displayName": "Dexc Autopilot",
+  "description": "Runs compiled C# snippets and bots inside a Player.",
+  "unity": "6000.3"
+}
