@@ -294,6 +294,9 @@ namespace ILRuntime.CLR.Method
                 obj = ILIntepreter.CheckAndCloneValueType(obj, appdomain);
                 param[paramCount - i] = obj;
             }
+            // Dexc: boxed, a Nullable<T> is either null or a T, so its members cannot be reached by reflection.
+            if (declaringType.TypeForCLR.IsGenericType && declaringType.TypeForCLR.GetGenericTypeDefinition() == typeof(Nullable<>))
+                return InvokeNullable(esp, mStack, isNewObj, paramCount, param);
 
             if (isConstructor)
             {
@@ -350,6 +353,52 @@ namespace ILRuntime.CLR.Method
                 Array.Clear(invocationParam, 0, invocationParam.Length);
                 return res;
             }
+        }
+
+        unsafe object InvokeNullable(StackObject* esp, AutoList mStack, bool isNewObj, int paramCount, object[] param)
+        {
+            object result;
+            if (isConstructor)
+            {
+                result = param[0];
+                if (!isNewObj)
+                {
+                    FixReference(paramCount, esp, param, mStack, result, true);
+                    result = null;
+                }
+            }
+            else
+            {
+                var value = StackObject.ToObject(Minus(esp, paramCount + 1), appdomain, mStack);
+                switch (def.Name)
+                {
+                    case "get_HasValue":
+                        result = value != null;
+                        break;
+                    case "get_Value":
+                        if (value == null)
+                            throw new InvalidOperationException("Nullable object must have a value.");
+                        result = value;
+                        break;
+                    case "GetValueOrDefault":
+                        result = value ?? (paramCount == 1 ? param[0] : Activator.CreateInstance(Nullable.GetUnderlyingType(declaringType.TypeForCLR)));
+                        break;
+                    case "ToString":
+                        result = value == null ? string.Empty : value.ToString();
+                        break;
+                    case "GetHashCode":
+                        result = value == null ? 0 : value.GetHashCode();
+                        break;
+                    case "Equals":
+                        result = value == null ? param[0] == null : value.Equals(param[0]);
+                        break;
+                    default:
+                        throw new NotSupportedException("Nullable<T>." + def.Name);
+                }
+            }
+
+            Array.Clear(invocationParam, 0, invocationParam.Length);
+            return result;
         }
 
         unsafe void FixReference(int paramCount, StackObject* esp, object[] param, AutoList mStack, object instance, bool hasThis)
