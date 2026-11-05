@@ -1,0 +1,18 @@
+diff --git a/ILRuntime/Runtime/Intepreter/ILIntepreter.cs b/ILRuntime/Runtime/Intepreter/ILIntepreter.cs
+index 6539095..bd3334d 100644
+--- a/ILRuntime/Runtime/Intepreter/ILIntepreter.cs
++++ b/ILRuntime/Runtime/Intepreter/ILIntepreter.cs
+@@ -3067,6 +3067,13 @@ namespace ILRuntime.Runtime.Intepreter
+                                                 objRef->Value = insIdx;
+                                                 //esp = PushObject(esp - 1, mStack, Enum.ToObject(tt, StackObject.ToObject(obj, AppDomain, mStack)), true);
+                                             }
++                                            // Dexc: a Nullable<T> on the stack is a plain T, or null.
++                                            else if (Nullable.GetUnderlyingType(tt) != null)
++                                            {
++                                                mStack[insIdx] = StackObject.ToObject(objRef2, domain, mStack);
++                                                objRef->ObjectType = ObjectTypes.Object;
++                                                objRef->Value = insIdx;
++                                            }
+                                             else if (tt.IsPrimitive)
+                                             {
+                                                 mStack[insIdx] = tt.CheckCLRTypes(StackObject.ToObject(objRef2, AppDomain, mStack));

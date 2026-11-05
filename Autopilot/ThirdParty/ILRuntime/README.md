@@ -23,6 +23,7 @@ Bot と eval の実行基盤。元のソースにパッチを当てたものを�
 | `0005-lazy-jit-worker.patch` | AppDomain を作るたびにスレッドが増えないようにする。eval は呼び出しごとに AppDomain を作る。 |
 | `0006-step-and-stack-limits.patch` | 無限ループと再帰の暴走で、ゲームを止めずに例外で打ち切る。解釈実行の呼び出しはネイティブの再帰になるので、スタックは残量で判定する。 |
 | `0007-disable-pdb.patch` | デバッグ情報は読まないので Mono.Cecil/symbols を取り込んでいない。実行時に使わないパッチツールの参照だけを外す。 |
+| `0008-nullable-constrained.patch` | `constrained` 呼び出しで Nullable<T> の値を受けられるようにする。`(n + 1).ToString()` が未実装のエラーになっていた。 |
 
 ## 更新の手順
 
