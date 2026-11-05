@@ -10,7 +10,6 @@ namespace StealthBot
 		public static void Configure(AutopilotBuilder<StealthContext> builder)
 		{
 			var brain = new Brain();
-			builder.SelectInterval = 0.25f;
 			builder.Machine("Paused").When(brain.IsPaused).Step(brain.Hold);
 			builder.Machine("Evade").When(brain.IsExposed).Step(brain.Evade);
 			builder.Machine("Advance").When(context => true).Step(brain.Advance);
