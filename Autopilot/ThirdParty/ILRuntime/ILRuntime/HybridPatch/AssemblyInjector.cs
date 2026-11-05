@@ -2,7 +2,6 @@ using ILRuntime.CLR.Method;
 using ILRuntime.CLR.TypeSystem;
 using ILRuntime.Mono.Cecil;
 using ILRuntime.Mono.Cecil.Cil;
-using ILRuntime.Mono.Cecil.Pdb;
 using ILRuntime.Runtime;
 using ILRuntime.Runtime.Enviorment;
 using System;
@@ -47,7 +46,7 @@ namespace ILRuntime.Hybrid
             ReaderParameters readerParameters = new ReaderParameters
             {
                 ReadSymbols = hasSymbol,
-                SymbolReaderProvider = hasSymbol ? new PdbReaderProvider() : null,
+                SymbolReaderProvider = null,
                 AssemblyResolver = resolver,
                 SymbolStream = pdbStream,
                 ReadWrite = true
@@ -202,7 +201,7 @@ namespace ILRuntime.Hybrid
             {
                 SymbolStream = pdbStream,
                 WriteSymbols = hasSymbol,
-                SymbolWriterProvider = hasSymbol ? new PdbWriterProvider() : null
+                SymbolWriterProvider = null
             };
             asm.Write(stream, writerParameters);
         }
