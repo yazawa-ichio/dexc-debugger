@@ -13,18 +13,22 @@ namespace ILRuntime.Runtime.Intepreter.RegisterVM
         Queue<ILMethod> jobs = new Queue<ILMethod>();
         bool exit;
         Thread thread;
-        public AsyncJITCompileWorker()
-        {
-            thread = new Thread(DoJob);
-            thread.Name = "ILRuntime JIT Worker";
-            thread.Start();
-        }
         public void QueueCompileJob(ILMethod method)
         {
             if (exit)
                 throw new NotSupportedException("Already disposed");
             lock (jobs)
+            {
                 jobs.Enqueue(method);
+                // Dexc: started on first use, so an AppDomain that never compiles costs no thread.
+                if (thread == null)
+                {
+                    thread = new Thread(DoJob);
+                    thread.Name = "ILRuntime JIT Worker";
+                    thread.IsBackground = true;
+                    thread.Start();
+                }
+            }
             evt.Set();
         }
 
