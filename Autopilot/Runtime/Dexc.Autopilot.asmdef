@@ -1,0 +1,11 @@
+{
+  "name": "Dexc.Autopilot",
+  "rootNamespace": "Dexc.Autopilot",
+  "references": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER",
+    "UNITY_EDITOR || DEXC_AUTOPILOT"
+  ]
+}

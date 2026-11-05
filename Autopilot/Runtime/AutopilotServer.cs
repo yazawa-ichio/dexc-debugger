@@ -9,10 +9,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
-using Dexc.Autopilot.Bridge;
 using UnityEngine;
 
-namespace DexcDebugger.Samples.StealthStageDemo.Autopilot
+namespace Dexc.Autopilot
 {
 	/// <summary>
 	/// How a tool reaches the autopilot: one line in, one line of JSON out, over loopback.
@@ -21,7 +20,7 @@ namespace DexcDebugger.Samples.StealthStageDemo.Autopilot
 	/// so a build run the normal way listens on nothing. What it accepts is code, so the token is not optional.
 	/// Requests wait for the main thread, where everything they touch lives.
 	/// </summary>
-	public sealed class StealthAutopilotServer : IDisposable
+	public sealed class AutopilotServer : IDisposable
 	{
 		private const int DefaultPort = 7890;
 		private const float KeepSeconds = 120f;
@@ -31,7 +30,7 @@ namespace DexcDebugger.Samples.StealthStageDemo.Autopilot
 		/// <summary>An interpreter left alive for a snippet that goes on after it returns.</summary>
 		private struct Kept
 		{
-			public Dexc.Autopilot.DexcILRuntimeModule Module;
+			public IAutopilotModule Module;
 			public float Expires;
 		}
 
@@ -46,26 +45,26 @@ namespace DexcDebugger.Samples.StealthStageDemo.Autopilot
 		private readonly ConcurrentQueue<Request> m_Requests = new ConcurrentQueue<Request>();
 		private readonly TcpListener m_Listener;
 		private readonly string m_Token;
-		private readonly StealthAutopilot m_Autopilot;
+		private readonly IAutopilotHost m_Host;
 		private readonly List<Kept> m_Kept = new List<Kept>();
 
-		private StealthAutopilotServer(StealthAutopilot autopilot, string token, int port)
+		private AutopilotServer(IAutopilotHost host, string token, int port)
 		{
-			m_Autopilot = autopilot;
+			m_Host = host;
 			m_Token = token;
 			m_Listener = new TcpListener(IPAddress.Loopback, port);
 			m_Listener.Start();
-			new Thread(Accept) { IsBackground = true, Name = "StealthAutopilotServer" }.Start();
+			new Thread(Accept) { IsBackground = true, Name = "AutopilotServer" }.Start();
 			UnityEngine.Debug.Log("Autopilot server on port " + port);
 		}
 
-		public static StealthAutopilotServer TryStart(StealthAutopilot autopilot)
+		public static AutopilotServer TryStart(IAutopilotHost host)
 		{
 			var token = ReadArgument("-dexc-autopilot-token");
 			if (string.IsNullOrEmpty(token))
 				return null;
 			var port = ReadArgument("-dexc-autopilot-port");
-			return new StealthAutopilotServer(autopilot, token, port != null ? int.Parse(port, CultureInfo.InvariantCulture) : DefaultPort);
+			return new AutopilotServer(host, token, port != null ? int.Parse(port, CultureInfo.InvariantCulture) : DefaultPort);
 		}
 
 		public void Pump()
@@ -95,70 +94,50 @@ namespace DexcDebugger.Samples.StealthStageDemo.Autopilot
 
 		public void Dispose() => m_Listener.Stop();
 
+		/// <summary>An operation is "status", or a verb and a VM: "load:ilruntime", "eval:pipeline", "eval-keep:ilruntime".</summary>
 		private IDictionary<string, object> Run(Request request)
 		{
-			switch (request.Operation)
+			if (request.Operation == "status")
+				return m_Host.Status();
+			var parts = request.Operation.Split(':');
+			if (parts.Length != 2 || m_Host.FindBackend(parts[1]) == null)
+				throw new ArgumentException("Unknown operation: " + request.Operation);
+			switch (parts[0])
 			{
-				case "status":
-					return m_Autopilot.Status();
 				case "load":
-					return m_Autopilot.Load(request.Payload);
-				case "load-ilruntime":
-					return m_Autopilot.Load(request.Payload, true);
+					return m_Host.Load(request.Payload, parts[1]);
 				case "eval":
-					return Eval(request.Payload);
-				case "eval-ilruntime":
-					return EvalILRuntime(request.Payload, false);
-				case "eval-ilruntime-keep":
-					return EvalILRuntime(request.Payload, true);
+					return Eval(request.Payload, parts[1], false);
+				case "eval-keep":
+					return Eval(request.Payload, parts[1], true);
 				default:
 					throw new ArgumentException("Unknown operation: " + request.Operation);
 			}
 		}
 
-		/// <summary>Each snippet gets an interpreter of its own, so looking at the game never disturbs a running bot.</summary>
-		private static IDictionary<string, object> Eval(byte[] assembly)
+		/// <summary>
+		/// Each snippet gets a VM of its own, so a snippet that breaks takes nothing else with it and looking at the game
+		/// never disturbs a running bot.
+		/// </summary>
+		/// <param name="keep">Leaves the VM alive for a while, for a snippet that goes on after it returns, such as an await.</param>
+		private IDictionary<string, object> Eval(byte[] assembly, string backend, bool keep)
 		{
 			var result = new Dictionary<string, object>();
 			var clock = Stopwatch.StartNew();
+			IAutopilotModule module = null;
 			try
 			{
-				using var module = DexcIlModule.Load(assembly, StealthAutopilot.OpenTypes());
+				module = m_Host.FindBackend(backend).Load(assembly);
 				result["loadMs"] = clock.ElapsedMilliseconds;
 				if (module.UnboundMembers.Count > 0)
 				{
 					// Refused rather than run: it would fail at whatever line reaches the missing member.
 					result["ok"] = false;
 					result["error"] = "Not available in this build: " + string.Join(", ", module.UnboundMembers);
+					module.Dispose();
 					return result;
 				}
 
-				clock.Restart();
-				var value = module.Invoke(EvalMethod);
-				result["runMs"] = clock.ElapsedMilliseconds;
-				result["ok"] = true;
-				result["type"] = value?.GetType().FullName;
-				result["value"] = Format(value);
-			}
-			catch (Exception exception)
-			{
-				result["ok"] = false;
-				result["error"] = exception.GetType().Name + ": " + exception.Message;
-			}
-
-			return result;
-		}
-
-		/// <param name="keep">Leaves the interpreter alive, for a snippet that goes on after it returns, such as an await.</param>
-		private IDictionary<string, object> EvalILRuntime(byte[] assembly, bool keep)
-		{
-			var result = new Dictionary<string, object>();
-			var clock = Stopwatch.StartNew();
-			Dexc.Autopilot.DexcILRuntimeModule module = null;
-			try
-			{
-				module = Dexc.Autopilot.DexcILRuntimeModule.Load(assembly);
-				result["loadMs"] = clock.ElapsedMilliseconds;
 				clock.Restart();
 				var value = module.Invoke(EvalType, EvalMethod);
 				result["runMs"] = clock.ElapsedMilliseconds;

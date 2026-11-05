@@ -16,7 +16,7 @@ namespace DexcDebugger.Verification
 	/// </summary>
 	public static class DexcAutopilotPlayerBuildDriver
 	{
-		const string PipelineSymbol = "ENABLE_RUNTIME_PIPELINE";
+		const string Symbols = "ENABLE_RUNTIME_PIPELINE;DEXC_AUTOPILOT";
 		const string Scene = "Assets/Samples/StealthStageDemo/Scenes/StealthStageDemo.unity";
 		const string ShaderCarrier = "Assets/Resources/DexcAutopilotShaderCarrier.mat";
 
@@ -43,7 +43,7 @@ namespace DexcDebugger.Verification
 			{
 				Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath)));
 				Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath)));
-				PlayerSettings.SetScriptingDefineSymbols(target, defines + ";" + PipelineSymbol);
+				PlayerSettings.SetScriptingDefineSymbols(target, defines + ";" + Symbols);
 				EditorUserBuildSettings.development = false;
 				PlayerSettings.SetScriptingBackend(target, ScriptingImplementation.IL2CPP);
 				PlayerSettings.SetManagedStrippingLevel(target, requested);

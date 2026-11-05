@@ -1,46 +1,61 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using ILRuntime.Runtime.Enviorment;
 using UnityEngine.Scripting;
 using ILRuntimeDomain = ILRuntime.Runtime.Enviorment.AppDomain;
 
 namespace Dexc.Autopilot
 {
-	/// <summary>One assembly of IL running on ILRuntime. The same shape as the Pipeline module, so a run can use either.</summary>
-	public sealed class DexcILRuntimeModule : IDisposable
+	/// <summary>The VM that runs ordinary C#. Each assembly gets a domain of its own, so one that breaks takes nothing with it.</summary>
+	public sealed class ILRuntimeBackend : IAutopilotBackend
 	{
 		/// <summary>Instructions one call may run before it is stopped, about a second of a tight loop.</summary>
 		private const long StepLimit = 50_000_000;
 
-		private readonly ILRuntimeDomain m_Domain;
-		private readonly MemoryStream m_Image;
+		private readonly Action<DelegateManager> m_Delegates;
 
-		private DexcILRuntimeModule(ILRuntimeDomain domain, MemoryStream image)
-		{
-			m_Domain = domain;
-			m_Image = image;
-		}
+		/// <param name="delegates">Registers the delegate types compiled code receives from a bot.</param>
+		public ILRuntimeBackend(Action<DelegateManager> delegates = null) => m_Delegates = delegates;
 
-		/// <param name="assembly">The assembly as it sits on disk.</param>
-		/// <param name="delegates">Registers the delegate types compiled code will receive from the assembly.</param>
-		public static DexcILRuntimeModule Load(byte[] assembly, Action<ILRuntime.Runtime.Enviorment.DelegateManager> delegates = null)
+		public string Name => "ilruntime";
+
+		public IAutopilotModule Load(byte[] assembly)
 		{
 			var image = new MemoryStream(assembly);
 			var domain = new ILRuntimeDomain { StepLimit = StepLimit };
 			domain.RegisterCrossBindingAdaptor(new IAsyncStateMachineClassInheritanceAdaptor());
 			domain.RegisterCrossBindingAdaptor(new CoroutineAdaptor());
-			delegates?.Invoke(domain.DelegateManager);
+			m_Delegates?.Invoke(domain.DelegateManager);
 			domain.LoadAssembly(image);
-			return new DexcILRuntimeModule(domain, image);
+			return new Module(domain, image);
 		}
 
-		public object Invoke(string type, string method, params object[] arguments) => m_Domain.Invoke(type, method, null, arguments);
-
-		public void Dispose()
+		private sealed class Module : IAutopilotModule
 		{
-			m_Domain.Dispose();
-			m_Image.Dispose();
+			private static readonly string[] s_NoMembers = new string[0];
+
+			private readonly ILRuntimeDomain m_Domain;
+			private readonly MemoryStream m_Image;
+
+			public Module(ILRuntimeDomain domain, MemoryStream image)
+			{
+				m_Domain = domain;
+				m_Image = image;
+			}
+
+			public IReadOnlyList<string> UnboundMembers => s_NoMembers;
+
+			public object Invoke(string type, string method, params object[] arguments) =>
+				m_Domain.Invoke(type, method, null, arguments);
+
+			public void Dispose()
+			{
+				m_Domain.Dispose();
+				m_Image.Dispose();
+			}
 		}
 
 		/// <summary>

@@ -1,3 +1,4 @@
+using Dexc.Autopilot;
 using DexcDebugger.Samples.StealthStageDemo;
 using DexcDebugger.Samples.StealthStageDemo.Autopilot;
 using UnityEngine;
@@ -6,7 +7,7 @@ namespace StealthBot
 {
 	public static class Entry
 	{
-		public static void Configure(AutopilotBuilder builder)
+		public static void Configure(AutopilotBuilder<StealthContext> builder)
 		{
 			var brain = new Brain();
 			builder.SelectInterval = 0.25f;
@@ -141,23 +142,23 @@ namespace StealthBot
 		int[] m_Home;
 		Vector3 m_Start;
 
-		public bool IsPaused(AutopilotContext context) => context.Game.State != StealthStageState.Running;
+		public bool IsPaused(StealthContext context) => context.Game.State != StealthStageState.Running;
 
-		public void Hold(AutopilotContext context) => context.Stop();
+		public void Hold(StealthContext context) => context.Stop();
 
-		public bool IsExposed(AutopilotContext context)
+		public bool IsExposed(StealthContext context)
 		{
 			var position = context.Game.PlayerPosition;
 			return Seen(context.Game, position.x, position.z);
 		}
 
-		public void Evade(AutopilotContext context)
+		public void Evade(StealthContext context)
 		{
 			Prepare(context.Game);
 			Walk(context, m_Home, true);
 		}
 
-		public void Advance(AutopilotContext context)
+		public void Advance(StealthContext context)
 		{
 			Prepare(context.Game);
 			Walk(context, m_Flow, false);
@@ -184,7 +185,7 @@ namespace StealthBot
 			m_Home = m_Grid.Flow(start);
 		}
 
-		void Walk(AutopilotContext context, int[] flow, bool retreating)
+		void Walk(StealthContext context, int[] flow, bool retreating)
 		{
 			var game = context.Game;
 			var position = game.PlayerPosition;

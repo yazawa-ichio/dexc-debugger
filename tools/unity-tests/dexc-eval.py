@@ -25,7 +25,6 @@ ILRUNTIME_RULES = GUARD / "ilruntime.globalconfig"
 PATCH = GUARD / "Patch" / "bin" / "Release" / "net10.0" / "Dexc.Guard.Patch.exe"
 SOURCE = """using System.Collections.Generic;
 using System.Threading.Tasks;
-using Cysharp.Threading.Tasks;
 using DexcDebugger.Samples.StealthStageDemo;
 using DexcDebugger.Samples.StealthStageDemo.Autopilot;
 using UnityEngine;
@@ -76,7 +75,8 @@ def pipeline_vm():
 
 def send(assembly):
     token = (WORK / "token").read_text(encoding="utf-8").strip()
-    operation = {"pipeline": "eval", "ilruntime-keep": "eval-ilruntime-keep"}.get(os.environ.get("DEXC_EVAL_VM"), "eval-ilruntime")
+    vm = os.environ.get("DEXC_EVAL_VM", "ilruntime")
+    operation = {"pipeline": "eval:pipeline", "ilruntime-keep": "eval-keep:ilruntime"}.get(vm, "eval:ilruntime")
     line = token + " " + operation + " " + base64.b64encode(assembly).decode("ascii") + "\n"
     with socket.create_connection(("127.0.0.1", 7890), timeout=30) as connection:
         connection.sendall(line.encode("utf-8"))

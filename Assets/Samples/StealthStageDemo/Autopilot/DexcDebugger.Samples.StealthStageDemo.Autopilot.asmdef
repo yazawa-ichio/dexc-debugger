@@ -4,23 +4,15 @@
   "references": [
     "DexcDebugger.Samples.StealthStageDemo.Gameplay",
     "Unity.InputSystem",
-    "Unity.Pipeline.IlInterpreter",
+    "Dexc.Autopilot",
+    "Dexc.Autopilot.ILRuntime",
     "Dexc.Autopilot.Backend.ILRuntime",
-    "Dexc.Autopilot.ILRuntime"
+    "Dexc.Autopilot.Backend.Pipeline"
   ],
-  "includePlatforms": [],
-  "excludePlatforms": [],
   "allowUnsafeCode": false,
-  "overrideReferences": false,
-  "precompiledReferences": [],
   "autoReferenced": false,
   "defineConstraints": [
     "!DISABLE_DEXC_DEBUGGER",
-    "UNITY_EDITOR || ENABLE_RUNTIME_PIPELINE_DEV || ENABLE_RUNTIME_PIPELINE",
-    "UNITY_EDITOR || UNITY_INCLUDE_INSTRUMENTATION || ENABLE_PROFILER || ENABLE_RUNTIME_PIPELINE",
-    "UNITY_EDITOR || ENABLE_RUNTIME_PIPELINE_DEV || !UNITY_INCLUDE_INSTRUMENTATION",
-    "UNITY_EDITOR || ENABLE_RUNTIME_PIPELINE_DEV || !ENABLE_PROFILER"
-  ],
-  "versionDefines": [],
-  "noEngineReferences": false
+    "UNITY_EDITOR || DEXC_AUTOPILOT"
+  ]
 }

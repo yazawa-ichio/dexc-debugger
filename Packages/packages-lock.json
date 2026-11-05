@@ -225,7 +225,9 @@
       "version": "file:../Autopilot",
       "depth": 0,
       "source": "local",
-      "dependencies": {}
+      "dependencies": {
+        "com.unity.pipeline": "0.9.1-exp.1"
+      }
     },
     "jp.yazawa-ichio.dexc-debugger": {
       "version": "file:jp.yazawa-ichio.dexc-debugger",

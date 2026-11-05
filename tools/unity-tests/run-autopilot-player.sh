@@ -62,11 +62,10 @@ refs()
 {
 	stripped="$project_path/Library/Bee/artifacts/WinPlayerBuildProgram/ManagedStripped"
 	references="$output_directory/refs"
-	bot="$project_path/Assets/Samples/StealthStageDemo/Bot~"
 	rm -rf "$references"
 	mkdir -p "$references"
 	cp "$stripped"/*.dll "$references/"
-	"$bot/Publicize/bin/Release/net10.0/Publicize.exe" "$(native_path "$references")" 		"$(native_path "$stripped/DexcDebugger.Samples.StealthStageDemo.Gameplay.dll")"
+	"$project_path/Autopilot/Tools~/Publicize/bin/Release/net10.0/Publicize.exe" "$(native_path "$references")" 		"$(native_path "$stripped/DexcDebugger.Samples.StealthStageDemo.Gameplay.dll")"
 	{
 		echo "-nologo -noconfig -nostdlib -target:library -langversion:9 -optimize- -debug- -nowarn:CS0162,CS1701,CS1702"
 		for assembly in "$references"/*.dll; do
@@ -116,12 +115,12 @@ stop()
 	rm -f "$pid_file" "$token_file"
 }
 
-# The Pipeline interpreter only gets a patched copy of a bot; see Autopilot/Tools~/Guard. ILRuntime takes it as it is.
+# DEXC_AUTOPILOT_VM picks the VM. The Pipeline interpreter only gets a patched copy of a bot; see Autopilot/Tools~/Guard.
 load()
 {
-	operation=${DEXC_AUTOPILOT_LOAD:-load-ilruntime}
+	vm=${DEXC_AUTOPILOT_VM:-ilruntime}
 	bot=$1
-	if [ "$operation" = load ]; then
+	if [ "$vm" = pipeline ]; then
 		patched="$output_directory/eval/$(basename "$bot")"
 		mkdir -p "$output_directory/eval"
 		cp "$bot" "$patched"
@@ -129,7 +128,7 @@ load()
 			"$(native_path "$patched")" "$(native_path "$output_directory/refs")"
 		bot=$patched
 	fi
-	remote "$operation" "$(native_path "$bot")"
+	remote "load:$vm" "$(native_path "$bot")"
 }
 
 case "$action" in

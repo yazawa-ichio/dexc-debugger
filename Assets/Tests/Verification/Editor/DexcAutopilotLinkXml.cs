@@ -19,6 +19,7 @@ namespace DexcDebugger.Verification
 			"<linker>\n"
 			+ "  <assembly fullname=\"DexcDebugger.Samples.StealthStageDemo.Gameplay\" preserve=\"all\"/>\n"
 			+ "  <assembly fullname=\"DexcDebugger.Samples.StealthStageDemo.Autopilot\" preserve=\"all\"/>\n"
+			+ "  <assembly fullname=\"Dexc.Autopilot\" preserve=\"all\"/>\n"
 			+ "  <assembly fullname=\"Unity.Pipeline.IlInterpreter\" preserve=\"all\"/>\n"
 			+ "  <assembly fullname=\"UnityPipeline.System.Reflection.Metadata\" preserve=\"all\"/>\n"
 			+ "  <assembly fullname=\"UniTask\" preserve=\"all\"/>\n"
