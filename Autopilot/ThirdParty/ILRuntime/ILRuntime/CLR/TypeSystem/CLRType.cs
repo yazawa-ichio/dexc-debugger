@@ -609,11 +609,9 @@ namespace ILRuntime.CLR.TypeSystem
             {
                 int hashCode = i.GetHashCode();
 
-                if (i.IsPublic || i.IsFamily || hasValueTypeBinder)
-                {
-                    fieldMapping[i.Name] = hashCode;
-                    fieldInfoCache[hashCode] = i;
-                }
+                // Dexc: private fields too, so typed bot code compiled against publicized references can reach them.
+                fieldMapping[i.Name] = hashCode;
+                fieldInfoCache[hashCode] = i;
                 if ((hasValueTypeBinder || isEnum) && !i.IsStatic)
                 {
                     orderedFieldTypes[idx] = appdomain.GetType(i.FieldType);
