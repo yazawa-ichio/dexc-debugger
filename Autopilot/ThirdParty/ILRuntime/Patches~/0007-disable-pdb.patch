@@ -1,0 +1,44 @@
+From 79743e440b3449788a6d10506b28ad123e8aebc2 Mon Sep 17 00:00:00 2001
+From: yazawa-ichio <yazawa922473@gmail.com>
+Date: Fri, 6 Nov 2026 03:59:14 +0900
+Subject: [PATCH] =?UTF-8?q?ILRuntime=20=E3=81=AE=20PDB=20=E3=81=AE?=
+ =?UTF-8?q?=E4=BD=BF=E7=94=A8=E3=82=92=E7=84=A1=E5=8A=B9=E3=81=AB=E3=81=99?=
+ =?UTF-8?q?=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+デバッグ情報は読まないので Mono.Cecil/symbols を取り込んでいない。実行時に使わないパッチツールの参照だけを外す。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/ILRuntime/HybridPatch/AssemblyInjector.cs b/ILRuntime/HybridPatch/AssemblyInjector.cs
+index 981791e..1d7e449 100644
+--- a/ILRuntime/HybridPatch/AssemblyInjector.cs
++++ b/ILRuntime/HybridPatch/AssemblyInjector.cs
+@@ -2,7 +2,6 @@ using ILRuntime.CLR.Method;
+ using ILRuntime.CLR.TypeSystem;
+ using ILRuntime.Mono.Cecil;
+ using ILRuntime.Mono.Cecil.Cil;
+-using ILRuntime.Mono.Cecil.Pdb;
+ using ILRuntime.Runtime;
+ using ILRuntime.Runtime.Enviorment;
+ using System;
+@@ -47,7 +46,7 @@ namespace ILRuntime.Hybrid
+             ReaderParameters readerParameters = new ReaderParameters
+             {
+                 ReadSymbols = hasSymbol,
+-                SymbolReaderProvider = hasSymbol ? new PdbReaderProvider() : null,
++                SymbolReaderProvider = null,
+                 AssemblyResolver = resolver,
+                 SymbolStream = pdbStream,
+                 ReadWrite = true
+@@ -202,7 +201,7 @@ namespace ILRuntime.Hybrid
+             {
+                 SymbolStream = pdbStream,
+                 WriteSymbols = hasSymbol,
+-                SymbolWriterProvider = hasSymbol ? new PdbWriterProvider() : null
++                SymbolWriterProvider = null
+             };
+             asm.Write(stream, writerParameters);
+         }

@@ -1,0 +1,27 @@
+From 61ddc9863f7afd89c304f9ce81929f84a3901ebf Mon Sep 17 00:00:00 2001
+From: yazawa-ichio <yazawa922473@gmail.com>
+Date: Fri, 6 Nov 2026 03:59:09 +0900
+Subject: [PATCH] =?UTF-8?q?ILRuntime=20=E3=81=AE=E5=B1=9E=E6=80=A7?=
+ =?UTF-8?q?=E3=81=AE=E5=9E=8B=E3=82=92=20typeof=20=E3=81=A7=E8=A7=A3?=
+ =?UTF-8?q?=E6=B1=BA=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+アセンブリ名のない型名は IL2CPP で解決できず、null のまま属性の処理で落ちていた。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/ILRuntime/Runtime/Enviorment/AppDomain.cs b/ILRuntime/Runtime/Enviorment/AppDomain.cs
+index 45d2720..38da4ae 100644
+--- a/ILRuntime/Runtime/Enviorment/AppDomain.cs
++++ b/ILRuntime/Runtime/Enviorment/AppDomain.cs
+@@ -635,7 +635,7 @@ namespace ILRuntime.Runtime.Enviorment
+                 floatType = GetType("System.Single");
+                 doubleType = GetType("System.Double");
+                 objectType = GetType("System.Object");
+-                jitAttributeType = GetType("ILRuntime.Runtime.ILRuntimeJITAttribute");
++                jitAttributeType = GetType(typeof(ILRuntime.Runtime.ILRuntimeJITAttribute)); // Dexc: a bare name does not resolve on IL2CPP
+             }
+ #if DEBUG && !DISABLE_ILRUNTIME_DEBUG
+             debugService.NotifyModuleLoaded(module.Name);
