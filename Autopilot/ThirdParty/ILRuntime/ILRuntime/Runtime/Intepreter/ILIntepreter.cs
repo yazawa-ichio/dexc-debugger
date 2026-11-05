@@ -4672,6 +4672,9 @@ namespace ILRuntime.Runtime.Intepreter
                     }
                     catch (Exception ex)
                     {
+                        // Dexc: a host call made by reflection wraps what it throws; catch clauses must see the real type.
+                        if (ex is System.Reflection.TargetInvocationException && ex.InnerException != null)
+                            ex = ex.InnerException;
                         var oriESP = esp;
                         if (ehs != null)
                         {
