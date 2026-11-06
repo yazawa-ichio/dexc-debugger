@@ -11,8 +11,57 @@ namespace StealthBot
 		{
 			var brain = new Brain();
 			builder.Machine("Paused").When(brain.IsPaused).Step(brain.Hold);
+			StageOne.Declare(builder);
 			builder.Machine("Evade").When(brain.IsExposed).Step(brain.Evade);
 			builder.Machine("Advance").When(context => true).Step(brain.Advance);
+		}
+	}
+
+	/// <summary>
+	/// The training yard has one guard. Along the south edge the bot is out of its reach. Up the east edge it can only be
+	/// seen while the guard walks east, so the bot waits in the corner until it turns west: the run north is over before it
+	/// comes round again.
+	/// </summary>
+	static class StageOne
+	{
+		const int HeadingWest = 3;
+		const float Arrived = 0.3f;
+		const float SouthEdge = -6f;
+		const float EastEdge = 8f;
+
+		public static void Declare(AutopilotBuilder<StealthContext> builder)
+		{
+			var machine = builder.Machine("Stage1").When(context => context.Game.m_CurrentStageIndex == 0).RestartOnEnter();
+			machine.State("ToSouthEdge")
+				.Enter(context => context.Shared.SetInt("attempts", context.Shared.GetInt("attempts") + 1))
+				.Step(context => MoveTo(context, -7f, SouthEdge))
+				.Goto("ToCorner", context => IsAt(context, -7f, SouthEdge));
+			machine.State("ToCorner")
+				.Step(context => MoveTo(context, EastEdge, SouthEdge))
+				.Goto("WaitForGuard", context => IsAt(context, EastEdge, SouthEdge));
+			machine.State("WaitForGuard")
+				.Step(context => context.Stop())
+				.Goto("ToExit", context => context.Game.m_Guards[0].PatrolIndex == HeadingWest);
+			machine.State("ToExit").Step(context =>
+			{
+				var exit = context.Game.ExitPosition;
+				MoveTo(context, exit.x, exit.z);
+			});
+		}
+
+		static bool IsAt(StealthContext context, float x, float z)
+		{
+			var position = context.Game.PlayerPosition;
+			var dx = x - position.x;
+			var dz = z - position.z;
+			return dx * dx + dz * dz < Arrived * Arrived;
+		}
+
+		static void MoveTo(StealthContext context, float x, float z)
+		{
+			var position = context.Game.PlayerPosition;
+			var offset = new Vector2(x - position.x, z - position.z);
+			context.Move(offset.normalized);
 		}
 	}
 
