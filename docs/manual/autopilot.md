@@ -24,7 +24,7 @@ Botの操作は、仮想のGamepadを通してプレイヤーの入力と同じ�
 "jp.yazawa-ichio.dexc-autopilot": "file:../Autopilot"
 ```
 
-ゲーム用のasmdefを作り、`Dexc.Autopilot`、`Dexc.Autopilot.ILRuntime`、`Dexc.Autopilot.Backend.ILRuntime`を参照します。`defineConstraints`には次を指定し、通常のビルドに入らないようにします。
+ゲーム用のasmdefを作り、`Dexc.Autopilot`、`Dexc.Autopilot.ILRuntime`、`Dexc.Autopilot.Backend.ILRuntime`、`Unity.InputSystem`を参照します。`defineConstraints`には次を指定し、通常のビルドに入らないようにします。
 
 ```json
 "defineConstraints": ["!DISABLE_DEXC_DEBUGGER", "UNITY_EDITOR || DEXC_AUTOPILOT"]
