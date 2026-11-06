@@ -12,6 +12,7 @@ Unity向けのデバッグツールです。Command（デバッグ処理の実�
 - [Panel](panel.md): projectが組み立てるメニューのページ
 - [Boot](boot.md): 起動時の設定メニューと保存先
 - [Remote](remote.md): Unity CLIからの操作
+- [Autopilot](autopilot.md): PlayerでのC#の実行とBot
 - [サンプル](sample.md): Stealth Stage Demo の読み方
 
 ## 5分で動かす
