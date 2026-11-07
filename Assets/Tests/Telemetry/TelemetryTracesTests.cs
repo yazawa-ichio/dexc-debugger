@@ -10,8 +10,6 @@ using Dexc.Telemetry;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
-using UnityEngine.TestTools.Constraints;
-using Is = UnityEngine.TestTools.Constraints.Is;
 using Field = DexcDebugger.Tests.Telemetry.ProtobufTestReader.Field;
 
 namespace DexcDebugger.Tests.Telemetry
@@ -506,7 +504,7 @@ namespace DexcDebugger.Tests.Telemetry
 			work();
 			work();
 
-			Assert.That(work, Is.Not.AllocatingGCMemory());
+			AllocationCheck.AssertNone(work);
 		}
 
 		sealed class FailingStream : MemoryStream

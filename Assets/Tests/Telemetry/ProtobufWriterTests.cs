@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Dexc.Telemetry;
 using NUnit.Framework;
-using UnityEngine.TestTools.Constraints;
-using Is = UnityEngine.TestTools.Constraints.Is;
 
 namespace DexcDebugger.Tests.Telemetry
 {
@@ -242,7 +240,7 @@ namespace DexcDebugger.Tests.Telemetry
 				};
 				// The first call compiles the code, so only a later one says what writing itself costs.
 				write();
-				Assert.That(write, Is.Not.AllocatingGCMemory(), pair.Key);
+				AllocationCheck.AssertNone(write, pair.Key);
 			}
 		}
 
@@ -251,7 +249,7 @@ namespace DexcDebugger.Tests.Telemetry
 		{
 			TestDelegate allocate = () => GC.KeepAlive(new byte[16]);
 			allocate();
-			Assert.That(allocate, Is.AllocatingGCMemory());
+			AllocationCheck.AssertSome(allocate);
 		}
 	}
 }

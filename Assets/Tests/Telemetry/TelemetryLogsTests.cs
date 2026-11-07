@@ -9,8 +9,6 @@ using System.Threading;
 using Dexc.Telemetry;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.TestTools.Constraints;
-using Is = UnityEngine.TestTools.Constraints.Is;
 using Field = DexcDebugger.Tests.Telemetry.ProtobufTestReader.Field;
 
 namespace DexcDebugger.Tests.Telemetry
@@ -653,7 +651,7 @@ namespace DexcDebugger.Tests.Telemetry
 			};
 			log();
 
-			Assert.That(log, Is.Not.AllocatingGCMemory());
+			AllocationCheck.AssertNone(log);
 		}
 
 		[Test]
@@ -670,7 +668,7 @@ namespace DexcDebugger.Tests.Telemetry
 			};
 			log();
 
-			Assert.That(log, Is.Not.AllocatingGCMemory());
+			AllocationCheck.AssertNone(log);
 		}
 
 		[Test]
@@ -686,7 +684,7 @@ namespace DexcDebugger.Tests.Telemetry
 			};
 			log();
 
-			Assert.That(log, Is.Not.AllocatingGCMemory());
+			AllocationCheck.AssertNone(log);
 		}
 
 		sealed class Throwing

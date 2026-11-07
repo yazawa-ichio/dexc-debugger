@@ -4,8 +4,6 @@ using System.IO;
 using System.Linq;
 using Dexc.Telemetry;
 using NUnit.Framework;
-using UnityEngine.TestTools.Constraints;
-using Is = UnityEngine.TestTools.Constraints.Is;
 using Field = DexcDebugger.Tests.Telemetry.ProtobufTestReader.Field;
 
 namespace DexcDebugger.Tests.Telemetry
@@ -318,7 +316,7 @@ namespace DexcDebugger.Tests.Telemetry
 			};
 			record();
 
-			Assert.That(record, Is.Not.AllocatingGCMemory());
+			AllocationCheck.AssertNone(record);
 		}
 
 		[Test]
@@ -337,7 +335,7 @@ namespace DexcDebugger.Tests.Telemetry
 			export();
 			export();
 
-			Assert.That(export, Is.Not.AllocatingGCMemory());
+			AllocationCheck.AssertNone(export);
 		}
 	}
 }
