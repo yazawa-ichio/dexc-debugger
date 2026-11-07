@@ -205,6 +205,8 @@ dotnet build "Autopilot/Tools~/Compiler/Dexc.Autopilot.Compiler.csproj" -c Relea
 
 Playerを再ビルドして`refs`を実行すると、参照は自動で読み直します。
 
+最後の要求から30分たつと、常駐コンパイラは自動で終了します。`serve --watch`で起動したときは終了しません。
+
 ## 使えないもの
 
 ### ILRuntime

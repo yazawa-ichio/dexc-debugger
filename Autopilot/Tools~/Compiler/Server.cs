@@ -14,10 +14,13 @@ namespace Dexc.Autopilot.Compiler
 	/// <summary>
 	/// Takes one JSON line per connection and answers with one. Loopback only. A compile holds the lock, so requests that
 	/// arrive together run one after another; each is short, and that keeps the kept compilations simple.
+	/// Left alone it exits, so a server a client started does not outlive the work. A watching server stays: saves are its
+	/// requests, and it could not say it had gone.
 	/// </summary>
 	internal sealed class Server
 	{
 		private const int WatchDelayMilliseconds = 150;
+		private const int IdleMilliseconds = 30 * 60 * 1000;
 
 		private readonly object m_Gate = new object();
 		private readonly ManualResetEventSlim m_Stopped = new ManualResetEventSlim();
@@ -26,6 +29,7 @@ namespace Dexc.Autopilot.Compiler
 		private readonly int m_Port;
 		private readonly string m_WatchVm;
 		private readonly string m_WatchDirectory;
+		private Timer m_IdleTimer;
 		private Timer m_WatchTimer;
 		private FileSystemWatcher m_Watcher;
 
@@ -46,6 +50,8 @@ namespace Dexc.Autopilot.Compiler
 			Console.WriteLine("Compiler on port " + m_Port);
 			if (m_WatchDirectory != null)
 				Watch();
+			else
+				m_IdleTimer = new Timer(_ => m_Stopped.Set(), null, IdleMilliseconds, Timeout.Infinite);
 			Task.Run(() => Accept(listener));
 			Task.Run(WarmUp);
 			m_Stopped.Wait();
@@ -92,6 +98,7 @@ namespace Dexc.Autopilot.Compiler
 
 		private void Serve(TcpClient client)
 		{
+			m_IdleTimer?.Change(IdleMilliseconds, Timeout.Infinite);
 			using (client)
 			using (var stream = client.GetStream())
 			using (var reader = new StreamReader(stream, new UTF8Encoding(false)))
