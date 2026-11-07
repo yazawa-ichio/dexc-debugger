@@ -4,14 +4,19 @@ namespace Dexc.Telemetry
 	internal static class OtlpFields
 	{
 		internal const int MetricsDataResourceMetrics = 1;
+		internal const int LogsDataResourceLogs = 1;
 
-		internal const int ResourceMetricsResource = 1;
+		/// <summary>The Resource in ResourceMetrics and in ResourceLogs.</summary>
+		internal const int ResourceField = 1;
 		internal const int ResourceMetricsScopeMetrics = 2;
+		internal const int ResourceLogsScopeLogs = 2;
 
 		internal const int ResourceAttributes = 1;
 
-		internal const int ScopeMetricsScope = 1;
+		/// <summary>The InstrumentationScope in ScopeMetrics and in ScopeLogs.</summary>
+		internal const int ScopeField = 1;
 		internal const int ScopeMetricsMetrics = 2;
+		internal const int ScopeLogsLogRecords = 2;
 
 		internal const int ScopeName = 1;
 
@@ -49,5 +54,12 @@ namespace Dexc.Telemetry
 		internal const int HistogramPointMax = 12;
 
 		internal const ulong TemporalityDelta = 1;
+
+		internal const int LogRecordTime = 1;
+		internal const int LogRecordSeverityNumber = 2;
+		internal const int LogRecordSeverityText = 3;
+		internal const int LogRecordBody = 5;
+		internal const int LogRecordAttributes = 6;
+		internal const int LogRecordObservedTime = 11;
 	}
 }

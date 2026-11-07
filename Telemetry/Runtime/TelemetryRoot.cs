@@ -15,15 +15,24 @@ namespace Dexc.Telemetry
 
 		internal static TelemetryRoot Current => s_Current ?? (s_Current = new TelemetryRoot());
 
-		internal readonly TelemetryMetrics Metrics = new TelemetryMetrics();
+		internal readonly TelemetryMetrics Metrics;
+		internal readonly TelemetryLogs Logs;
 
 		TelemetryFrameWriter m_MetricsFrames;
+		TelemetryFrameWriter m_LogFrames;
+		bool m_ListensToUnity;
 		TelemetryDriver m_Driver;
 		TelemetrySources m_Sources;
 		double m_Interval;
 		double m_NextExport;
 
 		internal bool IsRunning => m_MetricsFrames != null;
+
+		TelemetryRoot()
+		{
+			Metrics = new TelemetryMetrics();
+			Logs = new TelemetryLogs(Metrics);
+		}
 
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
 		static void ResetForPlayMode()
@@ -39,11 +48,24 @@ namespace Dexc.Telemetry
 		}
 
 		/// <summary>Starts writing to the frames, which this root owns from here on.</summary>
-		internal void Start(TelemetryFrameWriter metricsFrames, TelemetryOptions options, IReadOnlyList<KeyValuePair<string, string>> resource, double now)
+		internal void Start(
+			TelemetryFrameWriter metricsFrames,
+			TelemetryFrameWriter logFrames,
+			TelemetryOptions options,
+			IReadOnlyList<KeyValuePair<string, string>> resource,
+			double now
+		)
 		{
 			Metrics.SetResource(resource);
 			Metrics.Detail = options.Detail;
+			Logs.Minimum = options.MinimumSeverity;
 			m_MetricsFrames = metricsFrames;
+			m_LogFrames = logFrames;
+			if (options.CollectUnityLogs)
+			{
+				Application.logMessageReceivedThreaded += Logs.OnUnityLog;
+				m_ListensToUnity = true;
+			}
 			m_Interval = options.ExportIntervalSeconds;
 			m_NextExport = now + m_Interval;
 			if (options.CollectUnityMetrics)
@@ -63,6 +85,18 @@ namespace Dexc.Telemetry
 		internal void OnFrame(double deltaSeconds)
 		{
 			m_Sources?.OnFrame(deltaSeconds);
+			if (!IsRunning)
+			{
+				return;
+			}
+			try
+			{
+				Logs.Drain(m_LogFrames);
+			}
+			catch (IOException exception)
+			{
+				Fail(exception);
+			}
 		}
 
 		internal void Tick(double now)
@@ -85,13 +119,14 @@ namespace Dexc.Telemetry
 			{
 				var started = TelemetrySources.Timestamp();
 				m_Sources?.BeforeExport();
+				Logs.Drain(m_LogFrames);
+				Logs.Flush(m_LogFrames);
 				var bytes = Metrics.Export(m_MetricsFrames);
 				m_Sources?.AfterExport(started, bytes);
 			}
 			catch (IOException exception)
 			{
-				Debug.LogException(exception);
-				Close();
+				Fail(exception);
 			}
 		}
 
@@ -102,10 +137,24 @@ namespace Dexc.Telemetry
 			Close();
 		}
 
+		void Fail(IOException exception)
+		{
+			// Closed first: the log below must not come back into the output that just failed.
+			Close();
+			Debug.LogException(exception);
+		}
+
 		void Close()
 		{
+			if (m_ListensToUnity)
+			{
+				Application.logMessageReceivedThreaded -= Logs.OnUnityLog;
+				m_ListensToUnity = false;
+			}
 			m_MetricsFrames?.Dispose();
 			m_MetricsFrames = null;
+			m_LogFrames?.Dispose();
+			m_LogFrames = null;
 			m_Sources?.Dispose();
 			m_Sources = null;
 			if (m_Driver != null)

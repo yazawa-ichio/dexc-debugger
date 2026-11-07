@@ -17,6 +17,8 @@ namespace Dexc.Telemetry
 		/// <summary>A reserved length is this many bytes, whatever the message turns out to be.</summary>
 		const int ReservedLengthSize = 4;
 
+		const int MaximumBytesPerChar = 3;
+
 		/// <summary>The largest length a reserved four byte varint can hold.</summary>
 		internal const int MaximumCapacity = (1 << 28) - 1;
 
@@ -44,6 +46,13 @@ namespace Dexc.Telemetry
 		internal void Reset()
 		{
 			m_Position = 0;
+			HasOverflowed = false;
+		}
+
+		/// <summary>Goes back to an earlier position, dropping what came after it and any overflow it caused.</summary>
+		internal void Truncate(int position)
+		{
+			m_Position = position;
 			HasOverflowed = false;
 		}
 
@@ -108,6 +117,17 @@ namespace Dexc.Telemetry
 				return;
 			}
 			m_Position += m_Encoding.GetBytes(value, 0, value.Length, m_Buffer, m_Position);
+		}
+
+		/// <summary>Writes a part of a string. Its size in bytes is not known beforehand, so the length is a reserved one.</summary>
+		internal void WriteStringField(int field, string value, int start, int count)
+		{
+			var mark = BeginMessage(field);
+			if (Reserve(count * MaximumBytesPerChar))
+			{
+				m_Position += m_Encoding.GetBytes(value, start, count, m_Buffer, m_Position);
+			}
+			EndMessage(mark);
 		}
 
 		internal void WriteBytesField(int field, byte[] value, int count)

@@ -23,6 +23,18 @@ namespace Dexc.Telemetry
 		/// <summary>Whether to collect the frame time, memory and GC of Unity, and the cost of this package.</summary>
 		public bool CollectUnityMetrics = true;
 
+		/// <summary>Whether to collect what is logged through Unity, on any thread, including exceptions.</summary>
+		public bool CollectUnityLogs = true;
+
+		/// <summary>The lowest severity kept, for Unity logs and the calls the compile symbols kept.</summary>
+		public TelemetrySeverity MinimumSeverity = TelemetrySeverity.Info;
+
+		/// <summary>The size at which a file ends and the next one begins.</summary>
+		public long MaximumFileBytes = 8L * 1024 * 1024;
+
+		/// <summary>The limit of the folder. Above it the oldest files are deleted, of this run or earlier ones.</summary>
+		public long MaximumDirectoryBytes = 64L * 1024 * 1024;
+
 		/// <summary>More attributes of the OpenTelemetry resource, such as the build or the device.</summary>
 		public IReadOnlyDictionary<string, string> ResourceAttributes;
 	}

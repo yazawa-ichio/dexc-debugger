@@ -23,7 +23,7 @@
 - `DEXC_DEBUGGER`に連動しない
 - コーディング規約は[DexcDebugger コーディング規約](coding-conventions.md)に従う
 - mutable staticは`TelemetryRoot.s_Current`だけとし、実行中の状態はすべてここから辿る
-- main thread専用とする
+- main thread専用とする。例外は`Application.logMessageReceivedThreaded`のコールバックだけである。Unityがログを出したスレッドで呼ぶので、ロック付きのキューへ入れるだけにする
 
 ## レベル
 
@@ -47,6 +47,19 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 | Basic | フレーム時間のヒストグラム、メモリ、シーン遷移 |
 | Standard | システムごとの集計、ステージの区間 |
 | Detailed | 毎フレームの値、メソッド単位のspan |
+
+重大度はcompile symbolで消せる。1つ定義すると、それ以上の重大度の呼び出しが残る。どれも無ければ、`DexcTelemetry.LogInfo`などの呼び出しはすべて消える。
+
+| シンボル | 残る呼び出し |
+|---|---|
+| `DEXC_TELEMETRY_LOG_VERBOSE` | すべて |
+| `DEXC_TELEMETRY_LOG_DEBUG` | Debug以上 |
+| `DEXC_TELEMETRY_LOG_INFO` | Info以上 |
+| `DEXC_TELEMETRY_LOG_WARNING` | Warning以上 |
+| `DEXC_TELEMETRY_LOG_ERROR` | Error以上 |
+| `DEXC_TELEMETRY_LOG_FATAL` | Fatal |
+
+`TelemetryOptions.MinimumSeverity`（既定はInfo）は実行時の下限で、Unityのログにも効く。
 
 詳細度はcompile symbolで消せる。1つ定義すると、そのレベルより粗い呼び出しも残る。どれも無ければ、記録の呼び出しはすべて消える。引数も評価されない。
 
@@ -102,10 +115,23 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 - 取れない指標は書かない。0とは書かない。最初のフレームの前のメモリも同じである
 - メモリは書き出し時の値である。区間の最大値は持たない
 
+## Logs
+
+- `DexcTelemetry.LogVerbose`から`LogFatal`は、テレメトリーだけに記録する。Unityのログには出さない
+- `TelemetryOptions.CollectUnityLogs`（既定は有効）で、Unityのログを`Application.logMessageReceivedThreaded`から受ける。main thread以外のログも届く
+- `LogType.Log`はInfo、`Warning`はWarning、`Error`と`Assert`と`Exception`はErrorとする
+- 例外は本文のほかに、`exception.type`、`exception.message`、`exception.stacktrace`を属性に持つ。Unityが渡す`Type: message`を分けて作る
+- Warning以上のスタックトレースは`code.stacktrace`に持つ。Infoは持たない
+- 本文とスタックトレースは4096文字までとし、サロゲートペアの途中では切らない
+- キューは1024件である。溢れた分は捨てて、`dexc.telemetry.logs.dropped`で数える
+- エンコードはmain threadで毎フレーム行い、64KBのバッファーへためる。埋まると1フレーム書く。Error以上があればすぐ書く。残りは書き出しの間隔で書く
+
 ## 実行
 
 - `DexcTelemetry.Start(options)`が実行ごとに新しいファイルを開き、`Stop`が残りを書いて閉じる。`Start`の前の記録は、`Start`の後の最初の書き出しに含まれる
-- ファイルは`<Directory>/metrics-<run>.otlp`である。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
+- ファイルは`<Directory>/metrics-<run>.otlp`と`logs-<run>.otlp`である。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
+- `MaximumFileBytes`（既定8MiB）を超えると、フレームの切れ目で`logs-<run>-1.otlp`のように次のファイルへ移る
+- フォルダーが`MaximumDirectoryBytes`（既定64MiB）を超えると、書き込み中のものを除き、古い`.otlp`から消す。問題の直前の記録を残すためである。実行の開始時とファイルの切り替え時に確認する
 - Metricsの書き出しの間隔は既定60秒である。Metricsは区間の集計なので、メモリの量は間隔に関係しない。データの無い計器は書かず、すべて無ければフレームも書かない
 - `OnApplicationPause`と`OnApplicationQuit`でも書く
 - 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない

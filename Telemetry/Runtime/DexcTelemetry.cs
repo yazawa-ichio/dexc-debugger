@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using UnityEngine;
 
@@ -16,8 +17,8 @@ namespace Dexc.Telemetry
 		/// <summary>True between <see cref="Start"/> and <see cref="Stop"/>, unless a write failed and ended the output.</summary>
 		public static bool IsRunning => TelemetryRoot.Current.IsRunning;
 
-		/// <summary>Opens a new file for this run and starts writing to it periodically.</summary>
-		/// <returns>The path of the metrics file.</returns>
+		/// <summary>Opens new files for this run, one per signal, and starts writing to them periodically.</summary>
+		/// <returns>The path of the metrics file. The logs are beside it, named the same with <c>logs</c> for <c>metrics</c>.</returns>
 		/// <exception cref="InvalidOperationException">It is already running.</exception>
 		public static string Start(TelemetryOptions options = null)
 		{
@@ -32,12 +33,12 @@ namespace Dexc.Telemetry
 				throw new InvalidOperationException("Telemetry is already running.");
 			}
 			var directory = options.Directory ?? Path.Combine(Application.persistentDataPath, "Telemetry");
-			Directory.CreateDirectory(directory);
 			var run = Guid.NewGuid().ToString("N");
-			var path = Path.Combine(directory, "metrics-" + run + ".otlp");
-			var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-			root.Start(new TelemetryFrameWriter(stream), options, Resource(options, run), Time.realtimeSinceStartupAsDouble);
-			return path;
+			var files = new TelemetryFileSet(directory, run, options.MaximumFileBytes, options.MaximumDirectoryBytes);
+			var metrics = files.Open("metrics");
+			var logs = files.Open("logs");
+			root.Start(metrics, logs, options, Resource(options, run), Time.realtimeSinceStartupAsDouble);
+			return metrics.Path;
 		}
 
 		/// <summary>Writes what is left and closes the file. Does nothing when not running.</summary>
@@ -74,6 +75,51 @@ namespace Dexc.Telemetry
 		public static TelemetryHistogram Histogram(string name, string unit = "", double[] bounds = null)
 		{
 			return TelemetryRoot.Current.Metrics.Histogram(name, unit, bounds);
+		}
+
+		/// <summary>Records a log. Unlike Unity logs this goes to telemetry only.</summary>
+		[Conditional(TelemetrySymbols.LogVerbose)]
+		public static void LogVerbose(string message)
+		{
+			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Verbose, message, null, false);
+		}
+
+		/// <inheritdoc cref="LogVerbose"/>
+		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug)]
+		public static void LogDebug(string message)
+		{
+			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Debug, message, null, false);
+		}
+
+		/// <inheritdoc cref="LogVerbose"/>
+		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
+		public static void LogInfo(string message)
+		{
+			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Info, message, null, false);
+		}
+
+		/// <inheritdoc cref="LogVerbose"/>
+		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
+		[Conditional(TelemetrySymbols.LogWarning)]
+		public static void LogWarning(string message)
+		{
+			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Warning, message, null, false);
+		}
+
+		/// <inheritdoc cref="LogVerbose"/>
+		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
+		[Conditional(TelemetrySymbols.LogWarning), Conditional(TelemetrySymbols.LogError)]
+		public static void LogError(string message)
+		{
+			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Error, message, null, false);
+		}
+
+		/// <inheritdoc cref="LogVerbose"/>
+		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
+		[Conditional(TelemetrySymbols.LogWarning), Conditional(TelemetrySymbols.LogError), Conditional(TelemetrySymbols.LogFatal)]
+		public static void LogFatal(string message)
+		{
+			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Fatal, message, null, false);
 		}
 
 		static List<KeyValuePair<string, string>> Resource(TelemetryOptions options, string run)

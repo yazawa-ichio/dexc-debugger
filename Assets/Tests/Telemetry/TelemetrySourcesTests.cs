@@ -33,7 +33,7 @@ namespace DexcDebugger.Tests.Telemetry
 		void Start(bool collect)
 		{
 			var options = new TelemetryOptions { CollectUnityMetrics = collect };
-			m_Root.Start(new TelemetryFrameWriter(m_Stream), options, new KeyValuePair<string, string>[0], 0);
+			m_Root.Start(new TelemetryFrameWriter(m_Stream), new TelemetryFrameWriter(new MemoryStream()), options, new KeyValuePair<string, string>[0], 0);
 		}
 
 		/// <summary>The metrics of every frame written so far, by name.</summary>

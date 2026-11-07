@@ -6,31 +6,21 @@ namespace Dexc.Telemetry
 	/// <summary>The registered instruments and the encoding of what they hold into MetricsData frames.</summary>
 	internal sealed class TelemetryMetrics
 	{
-		const string ScopeName = "Dexc.Telemetry";
-
-		/// <summary>Room for the tags and reserved lengths around a message.</summary>
-		const int EnvelopeSize = 32;
-
 		const long UnixEpochTicks = 621355968000000000;
 		const ulong NanosecondsPerTick = 100;
 
 		readonly List<TelemetryInstrument> m_Instruments = new List<TelemetryInstrument>();
 		readonly Dictionary<string, TelemetryInstrument> m_ByName = new Dictionary<string, TelemetryInstrument>(StringComparer.Ordinal);
-		readonly byte[] m_Scope;
-		byte[] m_Resource = new byte[0];
 		ProtobufWriter m_Writer;
 		int m_TemplateBytes;
 		ulong m_IntervalStart;
 
 		internal TelemetryMetrics()
 		{
-			var writer = new ProtobufWriter(EnvelopeSize + ScopeName.Length);
-			var scope = writer.BeginMessage(OtlpFields.ScopeMetricsScope);
-			writer.WriteStringField(OtlpFields.ScopeName, ScopeName);
-			writer.EndMessage(scope);
-			m_Scope = Copy(writer);
 			m_IntervalStart = Now();
 		}
+
+		internal TelemetryEnvelope Envelope { get; } = new TelemetryEnvelope();
 
 		/// <summary>The finest level recorded. Set below what the symbols keep, it silences calls that are compiled in.</summary>
 		internal TelemetryDetail Detail { get; set; } = TelemetryDetail.Detailed;
@@ -64,31 +54,14 @@ namespace Dexc.Telemetry
 		/// <summary>Sets what every frame says about where the data comes from.</summary>
 		internal void SetResource(IReadOnlyList<KeyValuePair<string, string>> attributes)
 		{
-			var size = EnvelopeSize;
-			foreach (var pair in attributes)
-			{
-				size += EnvelopeSize + (pair.Key.Length + pair.Value.Length) * 3;
-			}
-			var writer = new ProtobufWriter(size);
-			var resource = writer.BeginMessage(OtlpFields.ResourceMetricsResource);
-			foreach (var pair in attributes)
-			{
-				var attribute = writer.BeginMessage(OtlpFields.ResourceAttributes);
-				writer.WriteStringField(OtlpFields.KeyValueKey, pair.Key);
-				var value = writer.BeginMessage(OtlpFields.KeyValueValue);
-				writer.WriteStringField(OtlpFields.AnyValueString, pair.Value);
-				writer.EndMessage(value);
-				writer.EndMessage(attribute);
-			}
-			writer.EndMessage(resource);
-			m_Resource = Copy(writer);
+			Envelope.SetResource(attributes);
 		}
 
 		/// <summary>Writes what was recorded since the last export as one frame. Without anything recorded there is no frame.</summary>
 		/// <returns>The size of the frame, or zero when there was none.</returns>
 		internal int Export(TelemetryFrameWriter frames)
 		{
-			var size = EnvelopeSize + m_Resource.Length + m_Scope.Length + m_TemplateBytes;
+			var size = TelemetryEnvelope.Overhead + Envelope.Resource.Length + Envelope.Scope.Length + m_TemplateBytes;
 			if (m_Writer == null || m_Writer.Buffer.Length < size)
 			{
 				m_Writer = new ProtobufWriter(size);
@@ -97,9 +70,9 @@ namespace Dexc.Telemetry
 			var time = Now();
 			writer.Reset();
 			var resourceMetrics = writer.BeginMessage(OtlpFields.MetricsDataResourceMetrics);
-			writer.WriteRaw(m_Resource, m_Resource.Length);
+			writer.WriteRaw(Envelope.Resource, Envelope.Resource.Length);
 			var scopeMetrics = writer.BeginMessage(OtlpFields.ResourceMetricsScopeMetrics);
-			writer.WriteRaw(m_Scope, m_Scope.Length);
+			writer.WriteRaw(Envelope.Scope, Envelope.Scope.Length);
 			var hasData = false;
 			for (var i = 0; i < m_Instruments.Count; i++)
 			{
@@ -159,13 +132,6 @@ namespace Dexc.Telemetry
 					throw new ArgumentException("Bounds are finite and strictly increasing.", nameof(bounds));
 				}
 			}
-		}
-
-		static byte[] Copy(ProtobufWriter writer)
-		{
-			var bytes = new byte[writer.Position];
-			Buffer.BlockCopy(writer.Buffer, 0, bytes, 0, bytes.Length);
-			return bytes;
 		}
 
 		static ulong Now()
