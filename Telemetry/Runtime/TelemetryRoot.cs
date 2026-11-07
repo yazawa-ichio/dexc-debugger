@@ -17,9 +17,11 @@ namespace Dexc.Telemetry
 
 		internal readonly TelemetryMetrics Metrics;
 		internal readonly TelemetryLogs Logs;
+		internal readonly TelemetryTraces Traces;
 
 		TelemetryFrameWriter m_MetricsFrames;
 		TelemetryFrameWriter m_LogFrames;
+		TelemetryFrameWriter m_TraceFrames;
 		readonly List<ITelemetryLogAdapter> m_Adapters = new List<ITelemetryLogAdapter>();
 		TelemetryDriver m_Driver;
 		TelemetrySources m_Sources;
@@ -31,7 +33,9 @@ namespace Dexc.Telemetry
 		TelemetryRoot()
 		{
 			Metrics = new TelemetryMetrics();
-			Logs = new TelemetryLogs(Metrics);
+			Traces = new TelemetryTraces(Metrics);
+			Traces.WriteFailed = Fail;
+			Logs = new TelemetryLogs(Metrics, Traces);
 		}
 
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -51,6 +55,7 @@ namespace Dexc.Telemetry
 		internal void Start(
 			TelemetryFrameWriter metricsFrames,
 			TelemetryFrameWriter logFrames,
+			TelemetryFrameWriter traceFrames,
 			TelemetryOptions options,
 			IReadOnlyList<KeyValuePair<string, string>> resource,
 			double now
@@ -62,6 +67,8 @@ namespace Dexc.Telemetry
 			Logs.IncludeFormattedMessage = options.IncludeFormattedMessage;
 			m_MetricsFrames = metricsFrames;
 			m_LogFrames = logFrames;
+			m_TraceFrames = traceFrames;
+			Traces.Begin(traceFrames, options.AmbientContext);
 			if (options.CollectUnityLogs)
 			{
 				m_Adapters.Add(new UnityLogAdapter());
@@ -129,6 +136,7 @@ namespace Dexc.Telemetry
 				m_Sources?.BeforeExport();
 				Logs.Drain(m_LogFrames);
 				Logs.Flush(m_LogFrames);
+				Traces.Flush();
 				var bytes = Metrics.Export(m_MetricsFrames);
 				m_Sources?.AfterExport(started, bytes);
 			}
@@ -163,6 +171,9 @@ namespace Dexc.Telemetry
 			m_MetricsFrames = null;
 			m_LogFrames?.Dispose();
 			m_LogFrames = null;
+			Traces.End();
+			m_TraceFrames?.Dispose();
+			m_TraceFrames = null;
 			m_Sources?.Dispose();
 			m_Sources = null;
 			if (m_Driver != null)

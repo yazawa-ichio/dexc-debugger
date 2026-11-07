@@ -4,12 +4,16 @@ namespace Dexc.Telemetry
 	internal static class OtlpFields
 	{
 		internal const int MetricsDataResourceMetrics = 1;
-		internal const int LogsDataResourceLogs = 1;
+
+		/// <summary>ResourceLogs in LogsData and ResourceSpans in TracesData.</summary>
+		internal const int BatchResource = 1;
+
+		/// <summary>ScopeLogs in ResourceLogs and ScopeSpans in ResourceSpans.</summary>
+		internal const int BatchScope = 2;
 
 		/// <summary>The Resource in ResourceMetrics and in ResourceLogs.</summary>
 		internal const int ResourceField = 1;
 		internal const int ResourceMetricsScopeMetrics = 2;
-		internal const int ResourceLogsScopeLogs = 2;
 
 		internal const int ResourceAttributes = 1;
 
@@ -17,6 +21,7 @@ namespace Dexc.Telemetry
 		internal const int ScopeField = 1;
 		internal const int ScopeMetricsMetrics = 2;
 		internal const int ScopeLogsLogRecords = 2;
+		internal const int ScopeSpansSpans = 2;
 
 		internal const int ScopeName = 1;
 
@@ -63,7 +68,22 @@ namespace Dexc.Telemetry
 		internal const int LogRecordSeverityText = 3;
 		internal const int LogRecordBody = 5;
 		internal const int LogRecordAttributes = 6;
+		internal const int LogRecordTraceId = 9;
+		internal const int LogRecordSpanId = 10;
 		internal const int LogRecordObservedTime = 11;
 		internal const int LogRecordEventName = 12;
+
+		internal const int SpanTraceId = 1;
+		internal const int SpanSpanId = 2;
+		internal const int SpanParentSpanId = 4;
+		internal const int SpanName = 5;
+		internal const int SpanKind = 6;
+		internal const int SpanStartTime = 7;
+		internal const int SpanEndTime = 8;
+		internal const int SpanAttributes = 9;
+		internal const int SpanDroppedAttributes = 10;
+		internal const int SpanStatus = 15;
+		internal const int StatusMessage = 2;
+		internal const int StatusCode = 3;
 	}
 }

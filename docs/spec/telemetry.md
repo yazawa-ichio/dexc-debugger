@@ -209,10 +209,36 @@ sealed class OtherLoggerAdapter : ITelemetryLogAdapter
 - `UnityLogAdapter`がUnityのログを取り込むアダプターである。`TelemetryOptions.CollectUnityLogs`（既定は有効）で自動で付く。カテゴリは`Unity`で、`SetLogLevel("Unity", ...)`で絞れる
 - `LogType.Log`はInfo、`Warning`はWarning、`Error`と`Assert`と`Exception`はErrorとする。Unityの例外は`Type: message`の文字列から属性を作る
 
+## Traces
+
+```csharp
+var tracer = DexcTelemetry.Tracer("Game.Stage");
+
+using (var span = tracer.Start("stage.load"))
+{
+	span.Set("stage", stage);
+	await LoadAsync();
+	using (var child = tracer.Start("stage.spawn", span.Context))
+	{
+	}
+}
+```
+
+- `TelemetrySpan`は構造体のハンドルで、固定のスロットを指す。開始、属性、終了は確保しない。スロットは256個で、最初のspanのときに作る。空きが無ければ何もしないspanを返し、`dexc.telemetry.spans.dropped`で数える
+- 親子関係は`TelemetryContext`を明示して渡す。awaitをまたいでも、そのまま渡せる
+- `TelemetryOptions.AmbientContext`を有効にすると、`AsyncLocal`で親を引き継ぐ。明示した親のほうを優先する。IL2CPPでは設定と解除に1.1〜1.4µsと519Bかかるので、既定は無効である
+- `logger.WithContext(context)`で、ログに`trace_id`と`span_id`を付ける。`AmbientContext`が有効なら自動で付く
+- 記録はmain threadだけである。公式と違い、`ConfigureAwait(false)`などで別スレッドへ移った継続でのspanの終了は対象外である
+- 値を返すので`ConditionalAttribute`では消せない。実行時は`TelemetryOptions.Detail`で止まる。呼び出しごと消すのはIL処理の役割である
+- 属性は4個までで、超えた分は`dropped_attributes_count`で数える
+- 通常時に毎フレームのspanは作らない
+- `Stop`の時点で開いているspanは書かない
+- ファイルは`traces-<run>.otlp`である。64KBのバッファーへためて、埋まると書き、書き出しの間隔でも書く
+
 ## 実行
 
 - `DexcTelemetry.Start(options)`が実行ごとに新しいファイルを開き、`Stop`が残りを書いて閉じる。`Start`の前の記録は、`Start`の後の最初の書き出しに含まれる
-- ファイルは`<Directory>/metrics-<run>.otlp`と`logs-<run>.otlp`である。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
+- ファイルは`<Directory>/metrics-<run>.otlp`、`logs-<run>.otlp`、`traces-<run>.otlp`である。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
 - `MaximumFileBytes`（既定8MiB）を超えると、フレームの切れ目で`logs-<run>-1.otlp`のように次のファイルへ移る
 - フォルダーが`MaximumDirectoryBytes`（既定64MiB）を超えると、書き込み中のものを除き、古い`.otlp`から消す。問題の直前の記録を残すためである。実行の開始時とファイルの切り替え時に確認する
 - Metricsの書き出しの間隔は既定60秒である。Metricsは区間の集計なので、メモリの量は間隔に関係しない。データの無い計器は書かず、すべて無ければフレームも書かない

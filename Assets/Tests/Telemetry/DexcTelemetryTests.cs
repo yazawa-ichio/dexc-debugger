@@ -97,7 +97,7 @@ namespace DexcDebugger.Tests.Telemetry
 			var stream = new MemoryStream();
 			var root = TelemetryRoot.Current;
 			var counter = root.Metrics.Counter("hits", string.Empty);
-			root.Start(new TelemetryFrameWriter(stream), new TelemetryFrameWriter(new MemoryStream()), Options(10), new KeyValuePair<string, string>[0], 100);
+			root.Start(new TelemetryFrameWriter(stream), new TelemetryFrameWriter(new MemoryStream()), new TelemetryFrameWriter(new MemoryStream()), Options(10), new KeyValuePair<string, string>[0], 100);
 
 			counter.Add(1, TelemetryDetail.Basic);
 			root.Tick(109.9);
@@ -117,7 +117,7 @@ namespace DexcDebugger.Tests.Telemetry
 		{
 			var root = TelemetryRoot.Current;
 			root.Metrics.Counter("hits", string.Empty).Add(1, TelemetryDetail.Basic);
-			root.Start(new TelemetryFrameWriter(new FailingStream()), new TelemetryFrameWriter(new MemoryStream()), Options(), new KeyValuePair<string, string>[0], 0);
+			root.Start(new TelemetryFrameWriter(new FailingStream()), new TelemetryFrameWriter(new MemoryStream()), new TelemetryFrameWriter(new MemoryStream()), Options(), new KeyValuePair<string, string>[0], 0);
 			UnityEngine.TestTools.LogAssert.Expect(UnityEngine.LogType.Exception, new System.Text.RegularExpressions.Regex("disk full"));
 
 			Assert.DoesNotThrow(() => root.Flush());

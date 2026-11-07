@@ -13,9 +13,6 @@ namespace Dexc.Telemetry
 	{
 		const int QueueCapacity = 1024;
 
-		/// <summary>The frame buffer. When a record no longer fits, the frame is written and a new one begins.</summary>
-		const int BufferSize = 64 * 1024;
-
 		/// <summary>Characters kept of a body, a message or a stack trace.</summary>
 		const int FieldLimit = 4096;
 
@@ -28,6 +25,7 @@ namespace Dexc.Telemetry
 		internal struct Entry
 		{
 			internal TelemetryLogger Logger;
+			internal TelemetryContext Context;
 			internal long Ticks;
 			internal TelemetrySeverity Severity;
 			internal string Body;
@@ -58,25 +56,22 @@ namespace Dexc.Telemetry
 		}
 
 		readonly object m_Lock = new object();
-		readonly TelemetryEnvelope m_Envelope;
+		readonly TelemetryBatch m_Batch;
+		readonly TelemetryTraces m_Traces;
 		readonly TelemetryCounter m_DroppedCounter;
 		readonly StringBuilder m_Text = new StringBuilder();
 		readonly Dictionary<string, TelemetryLogger> m_Loggers = new Dictionary<string, TelemetryLogger>(StringComparer.Ordinal);
 		readonly Dictionary<string, TelemetrySeverity> m_Levels = new Dictionary<string, TelemetrySeverity>(StringComparer.Ordinal);
 		TelemetrySeverity m_DefaultLevel = TelemetrySeverity.Info;
-		ProtobufWriter m_Writer;
 		Entry[] m_Incoming;
 		Entry[] m_Draining;
 		int m_IncomingCount;
 		int m_Dropped;
-		int m_ResourceLogs;
-		int m_ScopeLogs;
-		TelemetryLogCategory m_Scope;
-		int m_Records;
 
-		internal TelemetryLogs(TelemetryMetrics metrics)
+		internal TelemetryLogs(TelemetryMetrics metrics, TelemetryTraces traces = null)
 		{
-			m_Envelope = metrics.Envelope;
+			m_Batch = new TelemetryBatch(metrics.Envelope);
+			m_Traces = traces;
 			m_DroppedCounter = metrics.Counter("dexc.telemetry.logs.dropped", "{record}");
 		}
 
@@ -144,6 +139,11 @@ namespace Dexc.Telemetry
 		internal void Add(in Entry entry)
 		{
 			var ticks = DateTime.UtcNow.Ticks;
+			var context = entry.Logger.Context;
+			if (!context.IsValid && m_Traces != null)
+			{
+				context = m_Traces.Current;
+			}
 			lock (m_Lock)
 			{
 				if (m_Incoming == null)
@@ -160,6 +160,7 @@ namespace Dexc.Telemetry
 				ref var slot = ref m_Incoming[m_IncomingCount++];
 				slot = entry;
 				slot.Ticks = ticks;
+				slot.Context = context;
 			}
 		}
 
@@ -196,21 +197,13 @@ namespace Dexc.Telemetry
 		/// <summary>Writes the records encoded so far.</summary>
 		internal void Flush(TelemetryFrameWriter frames)
 		{
-			if (m_Records == 0)
-			{
-				return;
-			}
-			m_Writer.EndMessage(m_ScopeLogs);
-			m_Writer.EndMessage(m_ResourceLogs);
-			frames.WriteFrame(m_Writer.Buffer, m_Writer.Position);
-			frames.Flush();
-			m_Records = 0;
+			m_Batch.Flush(frames);
 		}
 
-		/// <summary>Writes a string attribute whose key is a part of <paramref name="key"/>.</summary>
-		internal static void WriteAttribute(ProtobufWriter writer, string key, int start, int count, in TelemetryValue value)
+		/// <summary>Writes an attribute whose key is a part of <paramref name="key"/>.</summary>
+		internal static void WriteAttribute(ProtobufWriter writer, int field, string key, int start, int count, in TelemetryValue value)
 		{
-			var attribute = writer.BeginMessage(OtlpFields.LogRecordAttributes);
+			var attribute = writer.BeginMessage(field);
 			writer.WriteStringField(OtlpFields.KeyValueKey, key, start, count);
 			var any = writer.BeginMessage(OtlpFields.KeyValueValue);
 			value.Write(writer);
@@ -258,61 +251,28 @@ namespace Dexc.Telemetry
 
 		void Encode(in Entry entry, TelemetryFrameWriter frames)
 		{
-			if (m_Records == 0)
+			var category = entry.Logger.CategoryState;
+			var mark = m_Batch.Enter(category, category.Scope);
+			WriteRecord(entry);
+			if (m_Batch.HasOverflowed)
 			{
-				Begin();
-			}
-			var mark = m_Writer.Position;
-			var scope = m_Scope;
-			var scopeLogs = m_ScopeLogs;
-			WriteInScope(entry);
-			if (m_Writer.HasOverflowed)
-			{
-				m_Writer.Truncate(mark);
-				m_Scope = scope;
-				m_ScopeLogs = scopeLogs;
-				Flush(frames);
-				Begin();
-				WriteInScope(entry);
-				if (m_Writer.HasOverflowed)
+				m_Batch.Rollback(mark);
+				m_Batch.Flush(frames);
+				m_Batch.Enter(category, category.Scope);
+				WriteRecord(entry);
+				if (m_Batch.HasOverflowed)
 				{
 					// Larger than a whole frame. Only an adapter or many long values get here.
 					m_DroppedCounter.Add(1, TelemetryDetail.Basic);
 					return;
 				}
 			}
-			m_Records++;
-		}
-
-		void Begin()
-		{
-			m_Writer = m_Writer ?? new ProtobufWriter(BufferSize);
-			m_Writer.Reset();
-			m_Scope = null;
-			m_ResourceLogs = m_Writer.BeginMessage(OtlpFields.LogsDataResourceLogs);
-			m_Writer.WriteRaw(m_Envelope.Resource, m_Envelope.Resource.Length);
-		}
-
-		/// <summary>Records of one category sit under one ScopeLogs. A change of category starts the next one.</summary>
-		void WriteInScope(in Entry entry)
-		{
-			var category = entry.Logger.CategoryState;
-			if (m_Scope != category)
-			{
-				if (m_Scope != null)
-				{
-					m_Writer.EndMessage(m_ScopeLogs);
-				}
-				m_ScopeLogs = m_Writer.BeginMessage(OtlpFields.ResourceLogsScopeLogs);
-				m_Writer.WriteRaw(category.Scope, category.Scope.Length);
-				m_Scope = category;
-			}
-			WriteRecord(entry);
+			m_Batch.Commit();
 		}
 
 		void WriteRecord(in Entry entry)
 		{
-			var writer = m_Writer;
+			var writer = m_Batch.Writer;
 			var record = writer.BeginMessage(OtlpFields.ScopeLogsLogRecords);
 			var time = (ulong)(entry.Ticks - UnixEpochTicks) * NanosecondsPerTick;
 			writer.WriteFixed64Field(OtlpFields.LogRecordTime, time);
@@ -323,6 +283,11 @@ namespace Dexc.Telemetry
 			if (entry.Logger.EventName != null)
 			{
 				writer.WriteStringField(OtlpFields.LogRecordEventName, entry.Logger.EventName);
+			}
+			if (entry.Context.IsValid)
+			{
+				writer.WriteTraceIdField(OtlpFields.LogRecordTraceId, entry.Context.TraceHigh, entry.Context.TraceLow);
+				writer.WriteSpanIdField(OtlpFields.LogRecordSpanId, entry.Context.SpanId);
 			}
 			var attributes = entry.Logger.Attributes;
 			writer.WriteRaw(attributes, attributes.Length);
@@ -367,7 +332,7 @@ namespace Dexc.Telemetry
 			var index = 0;
 			while (index < entry.Count && TelemetryLogTemplate.NextHole(template, ref position, out var hole))
 			{
-				WriteAttribute(writer, template, hole.NameStart, hole.NameLength, entry.Value(index));
+				WriteAttribute(writer, OtlpFields.LogRecordAttributes, template, hole.NameStart, hole.NameLength, entry.Value(index));
 				index++;
 			}
 		}

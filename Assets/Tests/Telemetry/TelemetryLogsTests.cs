@@ -637,7 +637,8 @@ namespace DexcDebugger.Tests.Telemetry
 
 			const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
 			Assert.That(typeof(TelemetryLogs).GetField("m_Incoming", Flags).GetValue(logs), Is.Null);
-			Assert.That(typeof(TelemetryLogs).GetField("m_Writer", Flags).GetValue(logs), Is.Null);
+			var batch = (TelemetryBatch)typeof(TelemetryLogs).GetField("m_Batch", Flags).GetValue(logs);
+			Assert.That(batch.Writer, Is.Null);
 		}
 
 		[Test]

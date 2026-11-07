@@ -38,6 +38,12 @@ namespace Dexc.Telemetry
 		/// </summary>
 		public bool IncludeFormattedMessage;
 
+		/// <summary>
+		/// Whether spans and logs follow the current span through an AsyncLocal, across awaits, without passing a context.
+		/// Off by default: in IL2CPP setting an AsyncLocal costs about a microsecond and 500 bytes for each span.
+		/// </summary>
+		public bool AmbientContext;
+
 		/// <summary>The size at which a file ends and the next one begins.</summary>
 		public long MaximumFileBytes = 8L * 1024 * 1024;
 

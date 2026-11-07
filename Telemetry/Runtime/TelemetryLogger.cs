@@ -16,12 +16,13 @@ namespace Dexc.Telemetry
 		readonly TelemetryLogCategory m_Category;
 
 		internal TelemetryLogger(TelemetryLogs logs, TelemetryLogCategory category)
-			: this(logs, category, Array.Empty<byte>(), null)
+			: this(logs, category, Array.Empty<byte>(), null, default)
 		{
 		}
 
-		TelemetryLogger(TelemetryLogs logs, TelemetryLogCategory category, byte[] attributes, string eventName)
+		TelemetryLogger(TelemetryLogs logs, TelemetryLogCategory category, byte[] attributes, string eventName, TelemetryContext context)
 		{
+			Context = context;
 			m_Logs = logs;
 			m_Category = category;
 			Attributes = attributes;
@@ -34,6 +35,9 @@ namespace Dexc.Telemetry
 
 		/// <summary>The encoded attributes every record of this logger carries.</summary>
 		internal byte[] Attributes { get; }
+
+		/// <summary>The span the records are tied to, if any.</summary>
+		public TelemetryContext Context { get; }
 
 		/// <summary>The OpenTelemetry event name of the records, or null for plain logs.</summary>
 		public string EventName { get; }
@@ -53,10 +57,10 @@ namespace Dexc.Telemetry
 			}
 			var writer = new ProtobufWriter(TelemetryEnvelope.Overhead * 2 + Attributes.Length + (key.Length + TelemetryLogs.ValueLimit) * 3);
 			writer.WriteRaw(Attributes, Attributes.Length);
-			TelemetryLogs.WriteAttribute(writer, key, 0, key.Length, value);
+			TelemetryLogs.WriteAttribute(writer, OtlpFields.LogRecordAttributes, key, 0, key.Length, value);
 			var attributes = new byte[writer.Position];
 			Buffer.BlockCopy(writer.Buffer, 0, attributes, 0, attributes.Length);
-			return new TelemetryLogger(m_Logs, m_Category, attributes, EventName);
+			return new TelemetryLogger(m_Logs, m_Category, attributes, EventName, Context);
 		}
 
 		/// <summary>
@@ -69,7 +73,13 @@ namespace Dexc.Telemetry
 			{
 				throw new ArgumentException("An event needs a name.", nameof(name));
 			}
-			return new TelemetryLogger(m_Logs, m_Category, Attributes, name);
+			return new TelemetryLogger(m_Logs, m_Category, Attributes, name, Context);
+		}
+
+		/// <summary>A logger of the same category and attributes whose records are tied to this span.</summary>
+		public TelemetryLogger WithContext(TelemetryContext context)
+		{
+			return new TelemetryLogger(m_Logs, m_Category, Attributes, EventName, context);
 		}
 
 		/// <summary>

@@ -36,7 +36,8 @@ namespace Dexc.Telemetry
 			var files = new TelemetryFileSet(directory, run, options.MaximumFileBytes, options.MaximumDirectoryBytes);
 			var metrics = files.Open("metrics");
 			var logs = files.Open("logs");
-			root.Start(metrics, logs, options, Resource(options, run), Time.realtimeSinceStartupAsDouble);
+			var traces = files.Open("traces");
+			root.Start(metrics, logs, traces, options, Resource(options, run), Time.realtimeSinceStartupAsDouble);
 			return metrics.Path;
 		}
 
@@ -75,6 +76,16 @@ namespace Dexc.Telemetry
 		{
 			return TelemetryRoot.Current.Metrics.Histogram(name, unit, bounds);
 		}
+
+		/// <summary>The tracer of this name, made on first use.</summary>
+		/// <exception cref="ArgumentException">The name is empty.</exception>
+		public static TelemetryTracer Tracer(string name)
+		{
+			return TelemetryRoot.Current.Traces.Tracer(name);
+		}
+
+		/// <summary>The current span, when <see cref="TelemetryOptions.AmbientContext"/> is on. Any thread.</summary>
+		public static TelemetryContext CurrentContext => TelemetryRoot.Current.Traces.Current;
 
 		/// <summary>The logger of a category, made on first use. Any thread.</summary>
 		/// <exception cref="ArgumentException">The category is empty.</exception>

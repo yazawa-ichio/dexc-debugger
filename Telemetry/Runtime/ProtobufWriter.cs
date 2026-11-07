@@ -137,6 +137,23 @@ namespace Dexc.Telemetry
 			WriteRaw(value, count);
 		}
 
+		/// <summary>Writes a 16 byte trace id.</summary>
+		internal void WriteTraceIdField(int field, ulong high, ulong low)
+		{
+			WriteTag(field, WireLengthDelimited);
+			WriteVarint(16);
+			WriteFixed64(high);
+			WriteFixed64(low);
+		}
+
+		/// <summary>Writes an 8 byte span id.</summary>
+		internal void WriteSpanIdField(int field, ulong id)
+		{
+			WriteTag(field, WireLengthDelimited);
+			WriteVarint(8);
+			WriteFixed64(id);
+		}
+
 		/// <summary>Copies bytes that are already encoded, such as a part made once when a metric was registered.</summary>
 		internal void WriteRaw(byte[] value, int count)
 		{
