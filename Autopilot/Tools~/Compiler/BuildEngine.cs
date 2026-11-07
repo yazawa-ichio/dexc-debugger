@@ -45,10 +45,6 @@ namespace Dexc.Autopilot.Compiler
 			+ "	}\n"
 			+ "}\n";
 
-		// Renaming a compilation throws away what it has bound from its references, which is most of a warm compile.
-		// So snippets compile under this name, and the emitted image gets its unique name by overwriting these bytes.
-		private const string SnippetName = "DexcEvalSnippet00000000000000000000";
-
 		private static readonly CSharpParseOptions s_ParseOptions = new CSharpParseOptions(LanguageVersion.CSharp9);
 		private static readonly ImmutableArray<DiagnosticAnalyzer> s_Analyzers = ImmutableArray.Create<DiagnosticAnalyzer>(new PipelineVmAnalyzer());
 
@@ -71,7 +67,6 @@ namespace Dexc.Autopilot.Compiler
 		private List<MetadataReference> m_References;
 		private CSharpCompilation m_SnippetBase;
 		private EnumPatcher m_Patcher;
-		private long m_SnippetCount;
 
 		public BuildEngine(string responseFile, string referenceDirectory)
 		{
@@ -89,8 +84,6 @@ namespace Dexc.Autopilot.Compiler
 			Refresh();
 			var tree = CSharpSyntaxTree.ParseText(Wrap(snippet), s_ParseOptions, "Eval.cs", Encoding.UTF8);
 			var result = Finish(m_SnippetBase.AddSyntaxTrees(tree), vm, false);
-			if (result.Ok)
-				result.Assembly = Rename(result.Assembly, ++m_SnippetCount);
 			result.Milliseconds = clock.ElapsedMilliseconds;
 			return result;
 		}
@@ -122,7 +115,7 @@ namespace Dexc.Autopilot.Compiler
 
 			m_References = references;
 			m_ReferenceStamp = stamp;
-			m_SnippetBase = CSharpCompilation.Create(SnippetName, null, m_References, s_Options);
+			m_SnippetBase = CSharpCompilation.Create("Eval", null, m_References, s_Options);
 			m_Patcher?.Dispose();
 			m_Patcher = new EnumPatcher(m_ReferenceDirectory);
 		}
@@ -181,22 +174,6 @@ namespace Dexc.Autopilot.Compiler
 				diagnostic.Id,
 				diagnostic.GetMessage(CultureInfo.InvariantCulture)
 			);
-		}
-
-		private static byte[] Rename(byte[] image, long number)
-		{
-			var old = Encoding.ASCII.GetBytes(SnippetName);
-			var unique = Encoding.ASCII.GetBytes("DexcEvalSnippet" + number.ToString("D20", CultureInfo.InvariantCulture));
-			var span = image.AsSpan();
-			var at = 0;
-			while (true)
-			{
-				var found = span.Slice(at).IndexOf(old);
-				if (found < 0)
-					return image;
-				unique.CopyTo(span.Slice(at + found));
-				at += found + old.Length;
-			}
 		}
 	}
 
