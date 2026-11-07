@@ -24,6 +24,7 @@ Bot と eval の実行基盤。元のソースにパッチを当てたものを�
 | `0006-step-and-stack-limits.patch` | 無限ループと再帰の暴走で、ゲームを止めずに例外で打ち切る。解釈実行の呼び出しはネイティブの再帰になるので、スタックは残量で判定する。 |
 | `0007-disable-pdb.patch` | デバッグ情報は読まないので Mono.Cecil/symbols を取り込んでいない。実行時に使わないパッチツールの参照だけを外す。 |
 | `0008-nullable-constrained.patch` | `constrained` 呼び出しで Nullable<T> の値を受けられるようにする。`(n + 1).ToString()` が未実装のエラーになっていた。 |
+| `0009-missing-members.patch` | このビルドに無いメンバーを、届いたら必ず例外にする。IL2CPP では半分の確率で例外にならず `null` が返っていた。実行せずに全メソッドを調べる `FindMissingMembers` も足す。 |
 
 ## 更新の手順
 

@@ -43,6 +43,7 @@ namespace Dexc.Autopilot
 		private int m_LoadCount;
 		private int m_Steps;
 		private string m_Failure;
+		private IReadOnlyList<string> m_Missing = new string[0];
 
 		/// <param name="context">What each machine is handed.</param>
 		/// <param name="entryType">The type in a bot that declares a static Configure method.</param>
@@ -66,6 +67,13 @@ namespace Dexc.Autopilot
 			try
 			{
 				m_Module = FindBackend(backend).Load(assembly);
+				m_Missing = m_Module.UnboundMembers;
+				if (m_Missing.Count > 0)
+				{
+					result["missing"] = m_Missing;
+					Write("missing " + m_Missing.Count + " members");
+				}
+
 				var builder = new AutopilotBuilder<TContext>();
 				m_Module.Invoke(m_EntryType, ConfigureMethod, builder);
 				m_Builder = builder;
@@ -136,6 +144,7 @@ namespace Dexc.Autopilot
 				["steps"] = m_Steps,
 				["switches"] = new Dictionary<string, int>(m_Switches),
 				["failure"] = m_Failure,
+				["missing"] = m_Missing,
 				["log"] = new List<string>(m_Log),
 			};
 			StatusRequested?.Invoke(result);

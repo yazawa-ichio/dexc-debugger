@@ -1616,6 +1616,34 @@ namespace ILRuntime.Runtime.Enviorment
             return false;
         }
 
+        // Dexc: what interpreted code names that this build lacks, filled as method bodies are prepared.
+        readonly HashSet<string> missingMembers = new HashSet<string>();
+
+        internal void AddMissingMember(string member)
+        {
+            missingMembers.Add(member);
+        }
+
+        /// <summary>Dexc: prepares every method without running it, and returns what they name that this build lacks.</summary>
+        public ICollection<string> FindMissingMembers()
+        {
+            foreach (var type in new HashSet<IType>(LoadedTypes.Values))
+            {
+                var ilType = type as ILType;
+                if (ilType == null || ilType.TypeReference.HasGenericParameters)
+                    continue;
+                foreach (var method in ilType.GetMethods())
+                    ((ILMethod)method).FindMissingMembers();
+                foreach (var constructor in ilType.GetConstructors())
+                    constructor.FindMissingMembers();
+                var staticConstructor = ilType.GetStaticConstroctor() as ILMethod;
+                if (staticConstructor != null)
+                    staticConstructor.FindMissingMembers();
+            }
+
+            return missingMembers;
+        }
+
         internal void CacheException(Exception ex)
         {
             mapException[ex.GetHashCode()] = ex;
@@ -1667,7 +1695,7 @@ namespace ILRuntime.Runtime.Enviorment
                 var typeDef = _ref.DeclaringType;
                 type = GetType(typeDef, contextType, contextMethod);
                 if (type == null)
-                    throw new KeyNotFoundException("Cannot find type:" + typename);
+                    throw new KeyNotFoundException("Cannot find type:" + typeDef.FullName);
 
                 if (token is Mono.Cecil.MethodDefinition)
                 {
@@ -1765,6 +1793,9 @@ namespace ILRuntime.Runtime.Enviorment
         {
             FieldReference f = token as FieldReference;
             var type = GetType(f.DeclaringType, contextType, contextMethod);
+            // Dexc: the field index of a member this build lacks is -1, and the access went on to fail with no name on it.
+            if (type == null)
+                throw new KeyNotFoundException("Cannot find type:" + f.DeclaringType.FullName);
 
             if (type is ILType)
             {
@@ -1782,6 +1813,17 @@ namespace ILRuntime.Runtime.Enviorment
             else
             {
                 int idx = type.GetFieldIndex(token);
+                // The index is the field's hash code, which can be negative. Only -1 means there is none.
+                if (idx == -1)
+                    throw new KeyNotFoundException(string.Format("Cannot find field:{0} in type:{1}", f.Name, type.FullName));
+                // Dexc: the stack slot follows the IL's idea of the type. A field of another type would be read as garbage.
+                if (type is CLRType clrType && !clrType.IsGenericInstance && !f.FieldType.ContainsGenericParameter)
+                {
+                    var expected = GetType(f.FieldType, contextType, contextMethod);
+                    var actual = clrType.GetField(idx).FieldType;
+                    if (expected == null || expected.TypeForCLR != actual)
+                        throw new KeyNotFoundException(string.Format("Field {0} of type:{1} is {2} here, not {3}", f.Name, type.FullName, actual, f.FieldType.FullName));
+                }
                 long res = ((long)type.GetHashCode() << 32) | (uint)idx;
 
                 return res;

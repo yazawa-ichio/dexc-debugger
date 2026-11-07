@@ -2554,6 +2554,11 @@ namespace ILRuntime.Runtime.Intepreter
                                     }
                                 }
                                 break;
+                            case OpCodeEnum.Missing:
+                                {
+                                    var ex = domain.GetException(ip->TokenInteger);
+                                    throw new ILRuntimeException(ex.Message, this, method, esp, ex);
+                                }
                             case OpCodeEnum.Ldftn:
                                 {
                                     IMethod m = domain.GetMethod(ip->TokenInteger);

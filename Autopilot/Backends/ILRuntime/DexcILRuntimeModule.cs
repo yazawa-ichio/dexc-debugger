@@ -30,23 +30,22 @@ namespace Dexc.Autopilot
 			domain.RegisterCrossBindingAdaptor(new CoroutineAdaptor());
 			m_Delegates?.Invoke(domain.DelegateManager);
 			domain.LoadAssembly(image);
-			return new Module(domain, image);
+			return new Module(domain, image, new List<string>(domain.FindMissingMembers()));
 		}
 
 		private sealed class Module : IAutopilotModule
 		{
-			private static readonly string[] s_NoMembers = new string[0];
-
 			private readonly ILRuntimeDomain m_Domain;
 			private readonly MemoryStream m_Image;
 
-			public Module(ILRuntimeDomain domain, MemoryStream image)
+			public Module(ILRuntimeDomain domain, MemoryStream image, IReadOnlyList<string> unboundMembers)
 			{
 				m_Domain = domain;
 				m_Image = image;
+				UnboundMembers = unboundMembers;
 			}
 
-			public IReadOnlyList<string> UnboundMembers => s_NoMembers;
+			public IReadOnlyList<string> UnboundMembers { get; }
 
 			public object Invoke(string type, string method, params object[] arguments) =>
 				m_Domain.Invoke(type, method, null, arguments);

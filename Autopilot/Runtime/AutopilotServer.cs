@@ -130,14 +130,7 @@ namespace Dexc.Autopilot
 				module = m_Host.FindBackend(backend).Load(assembly);
 				result["loadMs"] = clock.ElapsedMilliseconds;
 				if (module.UnboundMembers.Count > 0)
-				{
-					// Refused rather than run: it would fail at whatever line reaches the missing member.
-					result["ok"] = false;
-					result["error"] = "Not available in this build: " + string.Join(", ", module.UnboundMembers);
-					module.Dispose();
-					return result;
-				}
-
+					result["missing"] = module.UnboundMembers;
 				clock.Restart();
 				var value = module.Invoke(EvalType, EvalMethod);
 				result["runMs"] = clock.ElapsedMilliseconds;

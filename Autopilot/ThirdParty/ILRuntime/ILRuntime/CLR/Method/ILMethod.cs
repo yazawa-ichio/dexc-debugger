@@ -356,6 +356,28 @@ namespace ILRuntime.CLR.Method
             }
         }
 
+        // Dexc: looks up all this method names, without running it.
+        internal void FindMissingMembers()
+        {
+            if (GenericParameterCount > 0 && !IsGenericInstance)
+                return;
+            try
+            {
+                var prepared = Body;
+                var parameters = Parameters;
+                for (int i = 0; i < LocalVariableCount; i++)
+                {
+                    var local = Variables[i].VariableType;
+                    if (!local.ContainsGenericParameter && appdomain.GetType(local, DeclearingType, this) == null)
+                        appdomain.AddMissingMember("Cannot find Type:" + local.FullName);
+                }
+            }
+            catch (Exception e)
+            {
+                appdomain.AddMissingMember(e.Message);
+            }
+        }
+
         internal void SetMethodPatchContext(MethodPatchContext context)
         {
             this.patchCtx = context;
@@ -743,7 +765,19 @@ namespace ILRuntime.CLR.Method
             for (int i = 0; i < body.Length; i++)
             {
                 var c = def.Body.Instructions[i];
-                InitToken(ref body[i], c.Operand, addr);
+                // Dexc: code compiled against other assemblies can name what this build lacks. It fails where it is reached.
+                try
+                {
+                    InitToken(ref body[i], c.Operand, addr);
+                }
+                catch (Exception e)
+                {
+                    appdomain.CacheException(e);
+                    appdomain.AddMissingMember(e.Message);
+                    body[i].Code = OpCodeEnum.Missing;
+                    body[i].TokenInteger = e.GetHashCode();
+                    continue;
+                }
                 if (i > 0 && c.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt && def.Body.Instructions[i - 1].OpCode.Code == Mono.Cecil.Cil.Code.Constrained)
                 {
                     body[i - 1].TokenLong = body[i].TokenInteger;
@@ -837,41 +871,29 @@ namespace ILRuntime.CLR.Method
                 case OpCodeEnum.Ldvirtftn:
                 case OpCodeEnum.Callvirt:
                     {
-                        try
+                        bool invalidToken;
+                        var m = appdomain.GetMethod(token, declaringType, this, out invalidToken);
+                        if (m != null)
                         {
-                            bool invalidToken;
-                            var m = appdomain.GetMethod(token, declaringType, this, out invalidToken);
-                            if (m != null)
+                            if (code.Code == OpCodeEnum.Callvirt && m is ILMethod)
                             {
-                                if (code.Code == OpCodeEnum.Callvirt && m is ILMethod)
-                                {
-                                    ILMethod ilm = (ILMethod)m;
-                                    if (!ilm.def.IsAbstract && !ilm.def.IsVirtual && !ilm.DeclearingType.IsInterface)
-                                        code.Code = OpCodeEnum.Call;
-                                }
-                                if (invalidToken)
-                                    code.TokenInteger = m.GetHashCode();
-                                else
-                                    code.TokenInteger = token.GetHashCode();
+                                ILMethod ilm = (ILMethod)m;
+                                if (!ilm.def.IsAbstract && !ilm.def.IsVirtual && !ilm.DeclearingType.IsInterface)
+                                    code.Code = OpCodeEnum.Call;
                             }
+                            if (invalidToken)
+                                code.TokenInteger = m.GetHashCode();
                             else
-                            {
-                                //Cannot find method or the method is dummy
-                                MethodReference _ref = (MethodReference)token;
-                                int paramCnt = _ref.HasParameters ? _ref.Parameters.Count : 0;
-                                if (_ref.HasThis)
-                                    paramCnt++;
-                                code.TokenLong = paramCnt;
-                            }
+                                code.TokenInteger = token.GetHashCode();
                         }
-                        catch(Exception e)
+                        else
                         {
-                            appdomain.CacheException(e);
+                            //Cannot find method or the method is dummy
                             MethodReference _ref = (MethodReference)token;
                             int paramCnt = _ref.HasParameters ? _ref.Parameters.Count : 0;
                             if (_ref.HasThis)
                                 paramCnt++;
-                            code.TokenLong = (long)paramCnt | ((long)e.GetHashCode() << 32);
+                            code.TokenLong = paramCnt;
                         }
                     }
                     break;

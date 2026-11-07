@@ -880,5 +880,9 @@ namespace ILRuntime.Runtime.Intepreter.OpCodes
         /// 指定后面的数组地址操作在运行时不执行类型检查，并且返回可变性受限的托管指针。
         /// </summary>
         Readonly,
+        /// <summary>
+        /// Dexc: stands in for an instruction whose operand this build does not have, and throws why when reached.
+        /// </summary>
+        Missing,
     }
 }

@@ -16,7 +16,10 @@ namespace Dexc.Autopilot
 	/// <summary>One assembly loaded into a VM of its own. Disposing it ends everything the assembly left running.</summary>
 	public interface IAutopilotModule : IDisposable
 	{
-		/// <summary>Host members the assembly names that this build does not have.</summary>
+		/// <summary>
+		/// Host members the assembly names that this build does not have. What happens next is the VM's: ILRuntime runs the
+		/// assembly and throws where one is reached, the Pipeline interpreter refuses to run it.
+		/// </summary>
 		IReadOnlyList<string> UnboundMembers { get; }
 
 		object Invoke(string type, string method, params object[] arguments);

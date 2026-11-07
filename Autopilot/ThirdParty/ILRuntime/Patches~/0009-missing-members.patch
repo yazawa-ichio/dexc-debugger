@@ -1,0 +1,225 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yazawa-ichio <yazawa922473@gmail.com>
+Subject: [PATCH] ILRuntime で、このビルドに無いメンバーを必ず例外にする
+
+解決できない呼び出しの例外は GetHashCode の値で保存し、値が正のときだけ投げていた。IL2CPP では負にもなるので、
+半分の確率で例外にならず null が返っていた。解決に失敗した命令はどれも、届いたら例外を投げる命令に置き換える。
+実行せずに全メソッドを調べる FindMissingMembers も足す。
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/ILRuntime/CLR/Method/ILMethod.cs b/ILRuntime/CLR/Method/ILMethod.cs
+index 1d187d8..7f29b2e 100644
+--- a/ILRuntime/CLR/Method/ILMethod.cs
++++ b/ILRuntime/CLR/Method/ILMethod.cs
+@@ -356,6 +356,28 @@ namespace ILRuntime.CLR.Method
+             }
+         }
+ 
++        // Dexc: looks up all this method names, without running it.
++        internal void FindMissingMembers()
++        {
++            if (GenericParameterCount > 0 && !IsGenericInstance)
++                return;
++            try
++            {
++                var prepared = Body;
++                var parameters = Parameters;
++                for (int i = 0; i < LocalVariableCount; i++)
++                {
++                    var local = Variables[i].VariableType;
++                    if (!local.ContainsGenericParameter && appdomain.GetType(local, DeclearingType, this) == null)
++                        appdomain.AddMissingMember("Cannot find Type:" + local.FullName);
++                }
++            }
++            catch (Exception e)
++            {
++                appdomain.AddMissingMember(e.Message);
++            }
++        }
++
+         internal void SetMethodPatchContext(MethodPatchContext context)
+         {
+             this.patchCtx = context;
+@@ -743,7 +765,19 @@ namespace ILRuntime.CLR.Method
+             for (int i = 0; i < body.Length; i++)
+             {
+                 var c = def.Body.Instructions[i];
+-                InitToken(ref body[i], c.Operand, addr);
++                // Dexc: code compiled against other assemblies can name what this build lacks. It fails where it is reached.
++                try
++                {
++                    InitToken(ref body[i], c.Operand, addr);
++                }
++                catch (Exception e)
++                {
++                    appdomain.CacheException(e);
++                    appdomain.AddMissingMember(e.Message);
++                    body[i].Code = OpCodeEnum.Missing;
++                    body[i].TokenInteger = e.GetHashCode();
++                    continue;
++                }
+                 if (i > 0 && c.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt && def.Body.Instructions[i - 1].OpCode.Code == Mono.Cecil.Cil.Code.Constrained)
+                 {
+                     body[i - 1].TokenLong = body[i].TokenInteger;
+@@ -837,41 +871,29 @@ namespace ILRuntime.CLR.Method
+                 case OpCodeEnum.Ldvirtftn:
+                 case OpCodeEnum.Callvirt:
+                     {
+-                        try
++                        bool invalidToken;
++                        var m = appdomain.GetMethod(token, declaringType, this, out invalidToken);
++                        if (m != null)
+                         {
+-                            bool invalidToken;
+-                            var m = appdomain.GetMethod(token, declaringType, this, out invalidToken);
+-                            if (m != null)
++                            if (code.Code == OpCodeEnum.Callvirt && m is ILMethod)
+                             {
+-                                if (code.Code == OpCodeEnum.Callvirt && m is ILMethod)
+-                                {
+-                                    ILMethod ilm = (ILMethod)m;
+-                                    if (!ilm.def.IsAbstract && !ilm.def.IsVirtual && !ilm.DeclearingType.IsInterface)
+-                                        code.Code = OpCodeEnum.Call;
+-                                }
+-                                if (invalidToken)
+-                                    code.TokenInteger = m.GetHashCode();
+-                                else
+-                                    code.TokenInteger = token.GetHashCode();
++                                ILMethod ilm = (ILMethod)m;
++                                if (!ilm.def.IsAbstract && !ilm.def.IsVirtual && !ilm.DeclearingType.IsInterface)
++                                    code.Code = OpCodeEnum.Call;
+                             }
++                            if (invalidToken)
++                                code.TokenInteger = m.GetHashCode();
+                             else
+-                            {
+-                                //Cannot find method or the method is dummy
+-                                MethodReference _ref = (MethodReference)token;
+-                                int paramCnt = _ref.HasParameters ? _ref.Parameters.Count : 0;
+-                                if (_ref.HasThis)
+-                                    paramCnt++;
+-                                code.TokenLong = paramCnt;
+-                            }
++                                code.TokenInteger = token.GetHashCode();
+                         }
+-                        catch(Exception e)
++                        else
+                         {
+-                            appdomain.CacheException(e);
++                            //Cannot find method or the method is dummy
+                             MethodReference _ref = (MethodReference)token;
+                             int paramCnt = _ref.HasParameters ? _ref.Parameters.Count : 0;
+                             if (_ref.HasThis)
+                                 paramCnt++;
+-                            code.TokenLong = (long)paramCnt | ((long)e.GetHashCode() << 32);
++                            code.TokenLong = paramCnt;
+                         }
+                     }
+                     break;
+diff --git a/ILRuntime/Runtime/Enviorment/AppDomain.cs b/ILRuntime/Runtime/Enviorment/AppDomain.cs
+index 6f72e72..0f7e9a0 100644
+--- a/ILRuntime/Runtime/Enviorment/AppDomain.cs
++++ b/ILRuntime/Runtime/Enviorment/AppDomain.cs
+@@ -1616,6 +1616,34 @@ namespace ILRuntime.Runtime.Enviorment
+             return false;
+         }
+ 
++        // Dexc: what interpreted code names that this build lacks, filled as method bodies are prepared.
++        readonly HashSet<string> missingMembers = new HashSet<string>();
++
++        internal void AddMissingMember(string member)
++        {
++            missingMembers.Add(member);
++        }
++
++        /// <summary>Dexc: prepares every method without running it, and returns what they name that this build lacks.</summary>
++        public ICollection<string> FindMissingMembers()
++        {
++            foreach (var type in new HashSet<IType>(LoadedTypes.Values))
++            {
++                var ilType = type as ILType;
++                if (ilType == null || ilType.TypeReference.HasGenericParameters)
++                    continue;
++                foreach (var method in ilType.GetMethods())
++                    ((ILMethod)method).FindMissingMembers();
++                foreach (var constructor in ilType.GetConstructors())
++                    constructor.FindMissingMembers();
++                var staticConstructor = ilType.GetStaticConstroctor() as ILMethod;
++                if (staticConstructor != null)
++                    staticConstructor.FindMissingMembers();
++            }
++
++            return missingMembers;
++        }
++
+         internal void CacheException(Exception ex)
+         {
+             mapException[ex.GetHashCode()] = ex;
+@@ -1667,7 +1695,7 @@ namespace ILRuntime.Runtime.Enviorment
+                 var typeDef = _ref.DeclaringType;
+                 type = GetType(typeDef, contextType, contextMethod);
+                 if (type == null)
+-                    throw new KeyNotFoundException("Cannot find type:" + typename);
++                    throw new KeyNotFoundException("Cannot find type:" + typeDef.FullName);
+ 
+                 if (token is Mono.Cecil.MethodDefinition)
+                 {
+@@ -1765,6 +1793,9 @@ namespace ILRuntime.Runtime.Enviorment
+         {
+             FieldReference f = token as FieldReference;
+             var type = GetType(f.DeclaringType, contextType, contextMethod);
++            // Dexc: the field index of a member this build lacks is -1, and the access went on to fail with no name on it.
++            if (type == null)
++                throw new KeyNotFoundException("Cannot find type:" + f.DeclaringType.FullName);
+ 
+             if (type is ILType)
+             {
+@@ -1782,6 +1813,17 @@ namespace ILRuntime.Runtime.Enviorment
+             else
+             {
+                 int idx = type.GetFieldIndex(token);
++                // The index is the field's hash code, which can be negative. Only -1 means there is none.
++                if (idx == -1)
++                    throw new KeyNotFoundException(string.Format("Cannot find field:{0} in type:{1}", f.Name, type.FullName));
++                // Dexc: the stack slot follows the IL's idea of the type. A field of another type would be read as garbage.
++                if (type is CLRType clrType && !clrType.IsGenericInstance && !f.FieldType.ContainsGenericParameter)
++                {
++                    var expected = GetType(f.FieldType, contextType, contextMethod);
++                    var actual = clrType.GetField(idx).FieldType;
++                    if (expected == null || expected.TypeForCLR != actual)
++                        throw new KeyNotFoundException(string.Format("Field {0} of type:{1} is {2} here, not {3}", f.Name, type.FullName, actual, f.FieldType.FullName));
++                }
+                 long res = ((long)type.GetHashCode() << 32) | (uint)idx;
+ 
+                 return res;
+diff --git a/ILRuntime/Runtime/Intepreter/ILIntepreter.cs b/ILRuntime/Runtime/Intepreter/ILIntepreter.cs
+index bd3334d..fb31647 100644
+--- a/ILRuntime/Runtime/Intepreter/ILIntepreter.cs
++++ b/ILRuntime/Runtime/Intepreter/ILIntepreter.cs
+@@ -2554,6 +2554,11 @@ namespace ILRuntime.Runtime.Intepreter
+                                     }
+                                 }
+                                 break;
++                            case OpCodeEnum.Missing:
++                                {
++                                    var ex = domain.GetException(ip->TokenInteger);
++                                    throw new ILRuntimeException(ex.Message, this, method, esp, ex);
++                                }
+                             case OpCodeEnum.Ldftn:
+                                 {
+                                     IMethod m = domain.GetMethod(ip->TokenInteger);
+diff --git a/ILRuntime/Runtime/Intepreter/OpCodes/OpCodeEnum.cs b/ILRuntime/Runtime/Intepreter/OpCodes/OpCodeEnum.cs
+index a4e0045..17f5327 100644
+--- a/ILRuntime/Runtime/Intepreter/OpCodes/OpCodeEnum.cs
++++ b/ILRuntime/Runtime/Intepreter/OpCodes/OpCodeEnum.cs
+@@ -880,5 +880,9 @@ namespace ILRuntime.Runtime.Intepreter.OpCodes
+         /// 指定后面的数组地址操作在运行时不执行类型检查，并且返回可变性受限的托管指针。
+         /// </summary>
+         Readonly,
++        /// <summary>
++        /// Dexc: stands in for an instruction whose operand this build does not have, and throws why when reached.
++        /// </summary>
++        Missing,
+     }
+ }
