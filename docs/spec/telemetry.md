@@ -78,6 +78,30 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 
 計器の登録時に、値を0としたメッセージのバイト列を作る。値はすべて固定長なので、書き出しはバイト列のコピーと値の書き込みだけで済む。記録と書き出しは確保しない。
 
+## Unityの計測元
+
+`TelemetryOptions.CollectUnityMetrics`（既定は有効）で次を集める。計測元の呼び出しはパッケージの中にあるので、compile symbolではなくこの設定と`Detail`で制御する。
+
+| 指標 | 単位 | 取得元 | 間隔 | 詳細度 | 非developmentのIL2CPP |
+|---|---|---|---|---|---|
+| `unity.frame.time` | ms | `Time.unscaledDeltaTime` | 毎フレーム | Basic | 取れる |
+| `unity.frame.main_thread.time` | ms | `CPU Main Thread Frame Time` | 毎フレーム | Basic | 取れる |
+| `unity.gc.frame_allocated` | By | `GC Allocated In Frame` | 毎フレーム | Standard | 取れない |
+| `unity.gc.collections` | {collection} | `GC.CollectionCount(0)` | 書き出し時 | Basic | 取れる |
+| `unity.memory.used` | By | `Total Used Memory` | 書き出し時 | Basic | 取れる |
+| `unity.memory.reserved` | By | `Total Reserved Memory` | 書き出し時 | Basic | 取れる |
+| `unity.memory.system.used` | By | `System Used Memory` | 書き出し時 | Basic | 取れる |
+| `unity.gc.used` | By | `GC Used Memory` | 書き出し時 | Basic | 取れる |
+| `unity.gc.reserved` | By | `GC Reserved Memory` | 書き出し時 | Basic | 取れる |
+| `unity.memory.gfx.used` | By | `Gfx Used Memory` | 書き出し時 | Basic | 取れない |
+| `dexc.telemetry.source.time` | ms | `Stopwatch` | 毎フレーム | Standard | 取れる |
+| `dexc.telemetry.export.time` | ms | `Stopwatch` | 次の書き出し | Basic | 取れる |
+| `dexc.telemetry.export.size` | By | フレームのサイズ | 次の書き出し | Basic | 取れる |
+
+- 表はWindowsのIL2CPP（Stripping High）で確認した結果である。Androidは未確認である
+- 取れない指標は書かない。0とは書かない。最初のフレームの前のメモリも同じである
+- メモリは書き出し時の値である。区間の最大値は持たない
+
 ## 実行
 
 - `DexcTelemetry.Start(options)`が実行ごとに新しいファイルを開き、`Stop`が残りを書いて閉じる。`Start`の前の記録は、`Start`の後の最初の書き出しに含まれる

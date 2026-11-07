@@ -19,6 +19,7 @@ namespace Dexc.Telemetry
 
 		TelemetryFrameWriter m_MetricsFrames;
 		TelemetryDriver m_Driver;
+		TelemetrySources m_Sources;
 		double m_Interval;
 		double m_NextExport;
 
@@ -45,6 +46,10 @@ namespace Dexc.Telemetry
 			m_MetricsFrames = metricsFrames;
 			m_Interval = options.ExportIntervalSeconds;
 			m_NextExport = now + m_Interval;
+			if (options.CollectUnityMetrics)
+			{
+				m_Sources = new TelemetrySources(Metrics);
+			}
 			if (Application.isPlaying)
 			{
 				var driver = new GameObject("DexcTelemetry") { hideFlags = HideFlags.HideAndDontSave };
@@ -52,6 +57,12 @@ namespace Dexc.Telemetry
 				m_Driver = driver.AddComponent<TelemetryDriver>();
 				m_Driver.Root = this;
 			}
+		}
+
+		/// <summary>Takes the numbers of the frame that just ended.</summary>
+		internal void OnFrame(double deltaSeconds)
+		{
+			m_Sources?.OnFrame(deltaSeconds);
 		}
 
 		internal void Tick(double now)
@@ -72,7 +83,10 @@ namespace Dexc.Telemetry
 			}
 			try
 			{
-				Metrics.Export(m_MetricsFrames);
+				var started = TelemetrySources.Timestamp();
+				m_Sources?.BeforeExport();
+				var bytes = Metrics.Export(m_MetricsFrames);
+				m_Sources?.AfterExport(started, bytes);
 			}
 			catch (IOException exception)
 			{
@@ -92,6 +106,8 @@ namespace Dexc.Telemetry
 		{
 			m_MetricsFrames?.Dispose();
 			m_MetricsFrames = null;
+			m_Sources?.Dispose();
+			m_Sources = null;
 			if (m_Driver != null)
 			{
 				Object.Destroy(m_Driver.gameObject);

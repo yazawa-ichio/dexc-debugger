@@ -85,7 +85,8 @@ namespace Dexc.Telemetry
 		}
 
 		/// <summary>Writes what was recorded since the last export as one frame. Without anything recorded there is no frame.</summary>
-		internal void Export(TelemetryFrameWriter frames)
+		/// <returns>The size of the frame, or zero when there was none.</returns>
+		internal int Export(TelemetryFrameWriter frames)
 		{
 			var size = EnvelopeSize + m_Resource.Length + m_Scope.Length + m_TemplateBytes;
 			if (m_Writer == null || m_Writer.Buffer.Length < size)
@@ -107,11 +108,13 @@ namespace Dexc.Telemetry
 			writer.EndMessage(scopeMetrics);
 			writer.EndMessage(resourceMetrics);
 			m_IntervalStart = time;
-			if (hasData)
+			if (!hasData)
 			{
-				frames.WriteFrame(writer.Buffer, writer.Position);
-				frames.Flush();
+				return 0;
 			}
+			frames.WriteFrame(writer.Buffer, writer.Position);
+			frames.Flush();
+			return writer.Position;
 		}
 
 		T Find<T>(string name, string unit) where T : TelemetryInstrument

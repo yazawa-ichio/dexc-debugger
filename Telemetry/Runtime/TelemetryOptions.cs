@@ -20,6 +20,9 @@ namespace Dexc.Telemetry
 		/// <summary>The finest level recorded. It can only silence what the compile symbols kept.</summary>
 		public TelemetryDetail Detail = TelemetryDetail.Detailed;
 
+		/// <summary>Whether to collect the frame time, memory and GC of Unity, and the cost of this package.</summary>
+		public bool CollectUnityMetrics = true;
+
 		/// <summary>More attributes of the OpenTelemetry resource, such as the build or the device.</summary>
 		public IReadOnlyDictionary<string, string> ResourceAttributes;
 	}

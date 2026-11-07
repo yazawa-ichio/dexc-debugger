@@ -9,6 +9,7 @@ namespace Dexc.Telemetry
 
 		void Update()
 		{
+			Root.OnFrame(Time.unscaledDeltaTime);
 			Root.Tick(Time.realtimeSinceStartupAsDouble);
 		}
 
