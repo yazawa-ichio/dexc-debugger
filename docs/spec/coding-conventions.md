@@ -117,7 +117,7 @@ DexcDebuggerの規範的なコーディング規約である。規約を変更�
 - `async void`はUnityイベントなど戻り値を持てない境界以外では使用しない。
 - 非同期Commandは`CancellationToken`を受け取り、同期Commandは受け取らない。
 - Unity Objectのnull判定は境界で明示的に検証する。
-- libraryが持つmutable staticは`DexcRoot`だけとし、実行中の状態はすべて`DexcRoot`から辿る。`DexcRoot`はSubsystem RegistrationとEditorのEdit Mode進入時に作り直す。
+- libraryが持つmutable staticは`DexcRoot`だけとし、実行中の状態はすべて`DexcRoot`から辿る。`DexcRoot`はSubsystem RegistrationとEditorのEdit Mode進入時に作り直す。`Dexc.Telemetry`はDexcから独立したpackageなので、同じ考え方で`TelemetryRoot`を持つ。
 - libraryはmain thread専用を仕様とし、別threadからの呼出しを検査する処理を置かない。
 - Editor APIは`Editor` asmdefへ隔離し、`#if UNITY_EDITOR`だけに依存した分離を避ける。
 

@@ -1,0 +1,8 @@
+{
+  "name": "Dexc.Telemetry",
+  "rootNamespace": "Dexc.Telemetry",
+  "references": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": true,
+  "defineConstraints": []
+}

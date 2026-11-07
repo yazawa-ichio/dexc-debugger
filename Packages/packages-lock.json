@@ -220,6 +220,12 @@
       "source": "embedded",
       "dependencies": {}
     },
+    "jp.yazawa-ichio.dexc-telemetry": {
+      "version": "file:../Telemetry",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",
       "depth": 0,

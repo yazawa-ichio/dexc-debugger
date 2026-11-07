@@ -1,0 +1,9 @@
+{
+  "name": "jp.yazawa-ichio.dexc-telemetry",
+  "version": "0.1.0-pre.1",
+  "displayName": "Dexc Telemetry",
+  "description": "Records metrics, logs and traces in a Player and writes them as OTLP protobuf.",
+  "unity": "6000.3",
+  "license": "MIT",
+  "dependencies": {}
+}

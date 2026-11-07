@@ -151,6 +151,7 @@ FPSやメモリなど毎フレーム更新する表示は、取得方法をプ�
 - [起動メニュー仕様](docs/spec/debug-boot.md)
 - [DexcRemote仕様](docs/spec/remote-control.md)
 - [DexcRemote 運び手仕様](docs/spec/remote-transport.md)
+- [Dexc Telemetry仕様](docs/spec/telemetry.md)
 - [公開APIの入口](Packages/jp.yazawa-ichio.dexc-debugger/Documentation~/api-index.md)
 - [Debug Input値モデル仕様](docs/spec/debug-input-value-model.md)
 - [コーディング規約](docs/spec/coding-conventions.md)
