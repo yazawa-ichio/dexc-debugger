@@ -156,6 +156,40 @@ namespace Dexc.Telemetry
 			}
 		}
 
+		/// <summary>Writes a fixed64 field of zero, to be filled in by <see cref="PatchFixed64"/>.</summary>
+		/// <returns>Where the value is.</returns>
+		internal int WriteReservedFixed64Field(int field)
+		{
+			WriteTag(field, WireFixed64);
+			var position = m_Position;
+			WriteFixed64(0);
+			return position;
+		}
+
+		/// <summary>Writes a packed fixed64 field of zeros, to be filled in by <see cref="PatchFixed64"/>.</summary>
+		/// <returns>Where the first value is. The others follow it.</returns>
+		internal int WriteReservedPackedFixed64Field(int field, int count)
+		{
+			WriteTag(field, WireLengthDelimited);
+			WriteVarint((ulong)count * 8);
+			var position = m_Position;
+			for (var i = 0; i < count; i++)
+			{
+				WriteFixed64(0);
+			}
+			return position;
+		}
+
+		/// <summary>Replaces a value already written. The size does not change, so nothing around it moves.</summary>
+		internal void PatchFixed64(int position, ulong value)
+		{
+			for (var i = 0; i < 8; i++)
+			{
+				m_Buffer[position + i] = (byte)value;
+				value >>= 8;
+			}
+		}
+
 		/// <summary>
 		/// Starts a nested message. Its length is not known yet, so four bytes are kept for it and <see cref="EndMessage"/>
 		/// fills them in as a padded varint, which every decoder reads the same as the shortest form.
@@ -199,11 +233,8 @@ namespace Dexc.Telemetry
 
 		void PutFixed64(ulong value)
 		{
-			for (var i = 0; i < 8; i++)
-			{
-				m_Buffer[m_Position++] = (byte)value;
-				value >>= 8;
-			}
+			PatchFixed64(m_Position, value);
+			m_Position += 8;
 		}
 
 		bool Reserve(int count)

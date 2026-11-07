@@ -48,6 +48,45 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 | Standard | システムごとの集計、ステージの区間 |
 | Detailed | 毎フレームの値、メソッド単位のspan |
 
+詳細度はcompile symbolで消せる。1つ定義すると、そのレベルより粗い呼び出しも残る。どれも無ければ、記録の呼び出しはすべて消える。引数も評価されない。
+
+| シンボル | 残る呼び出し |
+|---|---|
+| `DEXC_TELEMETRY_DETAIL_BASIC` | Basic |
+| `DEXC_TELEMETRY_DETAIL_STANDARD` | Basic、Standard |
+| `DEXC_TELEMETRY_DETAIL_DETAILED` | Basic、Standard、Detailed |
+
+`ConditionalAttribute`は呼び出し側のcompileで判定されるので、シンボルは呼び出すコードのassemblyに定義する。パッケージはシンボルを自動で定義しない。`TelemetryOptions.Detail`は実行時の上限で、シンボルが残した呼び出しを黙らせることだけができる。
+
+## Metrics
+
+入口は`DexcTelemetry`である。namespaceと同じ名前の型を避けるため、`Telemetry`という型名は使わない。
+
+| 計器 | 取得 | 記録 | OTLP |
+|---|---|---|---|
+| `TelemetryCounter` | `DexcTelemetry.Counter(name, unit)` | `AddBasic`、`AddStandard`、`AddDetailed` | 単調増加のSum（Delta） |
+| `TelemetryGauge` | `DexcTelemetry.Gauge(name, unit)` | `SetBasic`、`SetStandard`、`SetDetailed` | Gauge |
+| `TelemetryHistogram` | `DexcTelemetry.Histogram(name, unit, bounds)` | `RecordBasic`、`RecordStandard`、`RecordDetailed` | Histogram（Delta） |
+
+- 詳細度は計器ではなく呼び出しごとに決まる。`ConditionalAttribute`はメソッドに固定されるためである
+- 名前はOpenTelemetryの規則に従う。英字で始まり、英数字と`_ . - /`だけで、255文字までとする。単位はASCIIで63文字までとする
+- 同じ名前で同じ種類の計器は、同じインスタンスを返す。種類、単位、バケットの境界が違えば`ArgumentException`とする
+- 計器はrootと一緒に捨てられる
+- 属性は持たない。分けたいときは別の名前の計器にする。値の位置を固定するためである
+- Counterは1未満の値を無視する。HistogramはNaNを無視する。Histogramの境界の既定値は公式のSDKと同じである
+- バケットは上限を含む
+
+計器の登録時に、値を0としたメッセージのバイト列を作る。値はすべて固定長なので、書き出しはバイト列のコピーと値の書き込みだけで済む。記録と書き出しは確保しない。
+
+## 実行
+
+- `DexcTelemetry.Start(options)`が実行ごとに新しいファイルを開き、`Stop`が残りを書いて閉じる。`Start`の前の記録は、`Start`の後の最初の書き出しに含まれる
+- ファイルは`<Directory>/metrics-<run>.otlp`である。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
+- Metricsの書き出しの間隔は既定60秒である。Metricsは区間の集計なので、メモリの量は間隔に関係しない。データの無い計器は書かず、すべて無ければフレームも書かない
+- `OnApplicationPause`と`OnApplicationQuit`でも書く
+- 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない
+- Resourceには`service.name`、`service.version`、`service.instance.id`（実行ごとに固有）、`telemetry.sdk.name`と、`ResourceAttributes`を載せる
+
 ## protobufの書き出し
 
 - エンコーダーは自作する。外部のprotobufライブラリとコード生成を使わない
