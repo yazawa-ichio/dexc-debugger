@@ -40,11 +40,11 @@ namespace Dexc.Telemetry
 			Reset();
 		}
 
-		/// <summary>Closes the current root and installs a fresh one.</summary>
+		/// <summary>Closes the current root. The next one is made on first use: a game that never uses telemetry pays nothing.</summary>
 		internal static void Reset()
 		{
 			s_Current?.Stop();
-			s_Current = new TelemetryRoot();
+			s_Current = null;
 		}
 
 		/// <summary>Starts writing to the frames, which this root owns from here on.</summary>

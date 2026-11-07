@@ -62,6 +62,17 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
+		public void ResettingMakesNoRootUntilOneIsUsed()
+		{
+			var field = typeof(TelemetryRoot).GetField("s_Current", BindingFlags.Static | BindingFlags.NonPublic);
+
+			TelemetryRoot.Reset();
+
+			Assert.That(field.GetValue(null), Is.Null, "a game that never uses telemetry pays for nothing");
+			Assert.That(TelemetryRoot.Current, Is.Not.Null);
+		}
+
+		[Test]
 		public void TheAssemblyDoesNotReferenceDexc()
 		{
 			var references = Library.GetReferencedAssemblies().Select(name => name.Name);

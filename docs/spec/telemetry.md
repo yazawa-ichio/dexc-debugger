@@ -130,8 +130,7 @@ log.Error(exception, "stage {Stage} failed", stage);
 | `DexcTelemetry.Logger(category)` | カテゴリのロガー。同じカテゴリは同じインスタンスである |
 | `logger.With(key, value)` | 属性を足したロガー。カテゴリとレベルは同じである。呼び出しごとではなく一度だけ作る |
 | `logger.Verbose`から`logger.Fatal` | 記録する。compile symbolで消える。値は4個までである |
-| `logger.Warning`、`Error`、`Fatal`（`Exception`付き） | 例外を一緒に記録する |
-| `logger.Log(severity, template, ...)` | 重大度を実行時に決める。compile symbolでは消えない |
+| `logger.Error(exception, template, ...)` | 例外を一緒に記録する |
 | `logger.IsEnabled(severity)` | 記録されるかを返す |
 | `logger.Emit(...)` | アダプター用。本文はテンプレートとして読まない |
 | `TelemetryValue` | 値の型。`string`、`int`、`long`、`float`、`double`、`bool`から暗黙に変換する。ほかの型は`TelemetryValue.Of(value)`を使う |
@@ -143,7 +142,7 @@ log.Error(exception, "stage {Stage} failed", stage);
 - `{Name}`の穴に値を順に当てる。名前は値の順番に関係しない。`{Name:F2}`の`:`から後は書式である。`{{`と`}}`は波括弧そのものである
 - Bodyはテンプレートのままとし、値は名前をキーにした属性にする。数値と真偽値は型を保つ
 - `TelemetryOptions.IncludeFormattedMessage`を有効にすると、Bodyは値を埋めた文になる。属性は変わらない。文を作るので確保が発生する
-- 穴より値が多ければ、余りは`arg1`のように位置をキーにする。値より穴が多ければ、余った穴は無視する
+- 穴と値の数が合わなければ、余った穴と値は無視する
 - `TelemetryValue.Of`の`ToString`は書き出すときに呼ぶ。例外を投げても出力は止めない
 
 ### 確保しないこと
@@ -162,7 +161,8 @@ log.Error(exception, "stage {Stage} failed", stage);
 
 - カテゴリはInstrumentationScopeの名前にする。公式と同じである。カテゴリが変わるとScopeLogsを分け、記録の順番は保つ
 - `With`の属性は、ロガーの作成時にバイト列にし、各記録へコピーする
-- 例外は`exception.type`、`exception.message`、`exception.stacktrace`を属性に持つ。`Exception`を渡した場合は`GetType().Name`と`ToString()`を使う。公式と同じである
+- 例外は`exception.type`、`exception.message`、`exception.stacktrace`を属性に持つ。`GetType().Name`と`ToString()`を使う。公式と同じである
+- 確保の大きいキューとバッファーは最初の記録で作り、rootも最初に使うときに作る。テレメトリーを使わないゲームには費用をかけない
 - Warning以上で文字列のスタックトレースがあれば`code.stacktrace`に持つ。Infoは持たない
 - 本文とスタックトレースは4096文字まで、属性の値は1024文字までとし、サロゲートペアの途中では切らない
 - キューは1024件である。溢れた分と、1フレームに収まらない記録は捨てて、`dexc.telemetry.logs.dropped`で数える

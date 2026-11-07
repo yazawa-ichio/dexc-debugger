@@ -60,13 +60,13 @@ namespace Dexc.Telemetry
 		readonly object m_Lock = new object();
 		readonly TelemetryEnvelope m_Envelope;
 		readonly TelemetryCounter m_DroppedCounter;
-		readonly ProtobufWriter m_Writer = new ProtobufWriter(BufferSize);
 		readonly StringBuilder m_Text = new StringBuilder();
 		readonly Dictionary<string, TelemetryLogger> m_Loggers = new Dictionary<string, TelemetryLogger>(StringComparer.Ordinal);
 		readonly Dictionary<string, TelemetrySeverity> m_Levels = new Dictionary<string, TelemetrySeverity>(StringComparer.Ordinal);
 		TelemetrySeverity m_DefaultLevel = TelemetrySeverity.Info;
-		Entry[] m_Incoming = new Entry[QueueCapacity];
-		Entry[] m_Draining = new Entry[QueueCapacity];
+		ProtobufWriter m_Writer;
+		Entry[] m_Incoming;
+		Entry[] m_Draining;
 		int m_IncomingCount;
 		int m_Dropped;
 		int m_ResourceLogs;
@@ -146,6 +146,12 @@ namespace Dexc.Telemetry
 			var ticks = DateTime.UtcNow.Ticks;
 			lock (m_Lock)
 			{
+				if (m_Incoming == null)
+				{
+					// Made by the first record, so that loggers that stay silent cost nothing.
+					m_Incoming = new Entry[QueueCapacity];
+					m_Draining = new Entry[QueueCapacity];
+				}
 				if (m_IncomingCount == QueueCapacity)
 				{
 					m_Dropped++;
@@ -280,6 +286,7 @@ namespace Dexc.Telemetry
 
 		void Begin()
 		{
+			m_Writer = m_Writer ?? new ProtobufWriter(BufferSize);
 			m_Writer.Reset();
 			m_Scope = null;
 			m_ResourceLogs = m_Writer.BeginMessage(OtlpFields.LogsDataResourceLogs);
@@ -348,7 +355,7 @@ namespace Dexc.Telemetry
 			writer.EndMessage(body);
 		}
 
-		/// <summary>The names in the template become the keys. A value with no hole for it keeps its position as the key.</summary>
+		/// <summary>The names in the template become the keys. A value with no hole for it has no name, and is left out.</summary>
 		static void WriteTemplateValues(ProtobufWriter writer, in Entry entry)
 		{
 			var template = entry.Body ?? string.Empty;
@@ -358,11 +365,6 @@ namespace Dexc.Telemetry
 			{
 				WriteAttribute(writer, template, hole.NameStart, hole.NameLength, entry.Value(index));
 				index++;
-			}
-			for (; index < entry.Count; index++)
-			{
-				var key = PositionKey(index);
-				WriteAttribute(writer, key, 0, key.Length, entry.Value(index));
 			}
 		}
 
@@ -395,21 +397,6 @@ namespace Dexc.Telemetry
 		static void WriteText(ProtobufWriter writer, string key, string value, int start, int length)
 		{
 			TelemetryEnvelope.WriteAttribute(writer, OtlpFields.LogRecordAttributes, key, value, start, Limit(value, start, length, FieldLimit));
-		}
-
-		static string PositionKey(int index)
-		{
-			switch (index)
-			{
-				case 0:
-					return "arg0";
-				case 1:
-					return "arg1";
-				case 2:
-					return "arg2";
-				default:
-					return "arg3";
-			}
 		}
 
 		static string SeverityText(TelemetrySeverity severity)

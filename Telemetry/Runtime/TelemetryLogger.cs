@@ -77,21 +77,6 @@ namespace Dexc.Telemetry
 			}
 		}
 
-		/// <summary>Takes a record with an exception object, for an adapter.</summary>
-		public void Emit(TelemetrySeverity severity, Exception exception, string message)
-		{
-			if (IsEnabled(severity))
-			{
-				m_Logs.Add(new TelemetryLogs.Entry
-				{
-					Logger = this,
-					Severity = severity,
-					Body = message,
-					Exception = exception,
-				});
-			}
-		}
-
 		void Write(
 			TelemetrySeverity severity,
 			Exception exception,

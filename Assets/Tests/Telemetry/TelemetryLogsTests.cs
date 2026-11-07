@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Dexc.Telemetry;
 using NUnit.Framework;
@@ -202,13 +203,13 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
-		public void AValueWithoutAHoleKeepsItsPosition()
+		public void AValueWithoutAHoleIsLeftOut()
 		{
 			m_Logger.Info("{First}", 1, 2);
 
 			var values = Values(DrainAll().Single());
 
-			Assert.That(values.Keys, Is.EqualTo(new[] { "First", "arg1" }));
+			Assert.That(values.Keys, Is.EqualTo(new[] { "First" }));
 		}
 
 		[Test]
@@ -345,17 +346,6 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
-		public void TheSeverityCanBeDecidedAtRunTime()
-		{
-			m_Logger.Log(TelemetrySeverity.Fatal, "{Value}", 1);
-
-			var record = DrainAll().Single();
-
-			Assert.That(record.Single(field => field.Number == 2).Value, Is.EqualTo(21UL));
-			Assert.That(Values(record).ContainsKey("Value"), Is.True);
-		}
-
-		[Test]
 		public void AnExceptionObjectBecomesTheSemanticConventionAttributes()
 		{
 			Exception thrown;
@@ -396,17 +386,6 @@ namespace DexcDebugger.Tests.Telemetry
 			m_Logger.Emit(TelemetrySeverity.Info, "{{kept}}");
 
 			Assert.That(Body(DrainAll().Single()), Is.EqualTo("{{kept}}"));
-		}
-
-		[Test]
-		public void AnAdapterCanHandOverAnExceptionObject()
-		{
-			m_Logger.Emit(TelemetrySeverity.Error, new ArgumentException("bad"), "from elsewhere");
-
-			var record = DrainAll().Single();
-
-			Assert.That(Body(record), Is.EqualTo("from elsewhere"));
-			Assert.That(Attributes(record)["exception.type"], Is.EqualTo("ArgumentException"));
 		}
 
 		[TestCase(LogType.Log, 9)]
@@ -617,6 +596,21 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
+		public void LoggersThatStaySilentMakeNoBuffers()
+		{
+			var logs = new TelemetryLogs(m_Metrics);
+			logs.DefaultLevel = TelemetrySeverity.Warning;
+
+			logs.Logger("Quiet").Info("below the level");
+			logs.Drain(m_Frames);
+			logs.Flush(m_Frames);
+
+			const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
+			Assert.That(typeof(TelemetryLogs).GetField("m_Incoming", Flags).GetValue(logs), Is.Null);
+			Assert.That(typeof(TelemetryLogs).GetField("m_Writer", Flags).GetValue(logs), Is.Null);
+		}
+
+		[Test]
 		public void ACallBelowTheLevelDoesNotAllocate()
 		{
 			m_Logs.DefaultLevel = TelemetrySeverity.Info;
@@ -625,7 +619,6 @@ namespace DexcDebugger.Tests.Telemetry
 			{
 				m_Logger.Verbose("plain");
 				m_Logger.Verbose("stage {Stage} took {Seconds} by {Who}, clear {Clear}", 3, 1.5, name, true);
-				m_Logger.Log(TelemetrySeverity.Debug, "{Value}", 3L);
 			};
 			log();
 
