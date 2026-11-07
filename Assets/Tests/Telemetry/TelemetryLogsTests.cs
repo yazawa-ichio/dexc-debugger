@@ -265,6 +265,36 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
+		public void AnEventCarriesItsName()
+		{
+			var cleared = m_Logger.With("mode", "hard").WithEvent("game.stage.cleared");
+
+			cleared.Info("stage {Stage}", 3);
+			m_Logger.Info("plain");
+
+			var records = DrainAll();
+			Assert.That(records[0].Single(field => field.Number == 12).Text, Is.EqualTo("game.stage.cleared"));
+			Assert.That(Values(records[0]).Keys, Is.EqualTo(new[] { "mode", "Stage" }));
+			Assert.That(records[1].Any(field => field.Number == 12), Is.False);
+		}
+
+		[Test]
+		public void AnEventKeepsItsNameThroughAttributes()
+		{
+			var cleared = m_Logger.WithEvent("game.stage.cleared").With("mode", "hard");
+
+			Assert.That(cleared.EventName, Is.EqualTo("game.stage.cleared"));
+			Assert.That(cleared.Category, Is.EqualTo("Game"));
+		}
+
+		[Test]
+		public void AnEventNeedsAName()
+		{
+			Assert.Throws<ArgumentException>(() => m_Logger.WithEvent(string.Empty));
+			Assert.Throws<ArgumentException>(() => m_Logger.WithEvent(null));
+		}
+
+		[Test]
 		public void AnAttributeNeedsAKey()
 		{
 			Assert.Throws<ArgumentException>(() => m_Logger.With(string.Empty, 1));

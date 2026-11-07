@@ -320,6 +320,10 @@ namespace Dexc.Telemetry
 			writer.WriteVarintField(OtlpFields.LogRecordSeverityNumber, (ulong)entry.Severity);
 			writer.WriteStringField(OtlpFields.LogRecordSeverityText, SeverityText(entry.Severity));
 			WriteBody(writer, entry);
+			if (entry.Logger.EventName != null)
+			{
+				writer.WriteStringField(OtlpFields.LogRecordEventName, entry.Logger.EventName);
+			}
 			var attributes = entry.Logger.Attributes;
 			writer.WriteRaw(attributes, attributes.Length);
 			if (entry.IsTemplate)

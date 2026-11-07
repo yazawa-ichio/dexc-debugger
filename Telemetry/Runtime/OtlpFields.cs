@@ -64,5 +64,6 @@ namespace Dexc.Telemetry
 		internal const int LogRecordBody = 5;
 		internal const int LogRecordAttributes = 6;
 		internal const int LogRecordObservedTime = 11;
+		internal const int LogRecordEventName = 12;
 	}
 }

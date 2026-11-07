@@ -333,6 +333,8 @@ namespace DexcDebugger.Tests.Telemetry
 				histogram.Record(16.6, TelemetryDetail.Basic);
 				m_Metrics.Export(m_Frames);
 			};
+			// The first export makes the buffer, so only the second goes the way every later one does.
+			export();
 			export();
 
 			Assert.That(export, Is.Not.AllocatingGCMemory());

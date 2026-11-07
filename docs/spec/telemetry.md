@@ -129,11 +129,21 @@ log.Error(exception, "stage {Stage} failed", stage);
 |---|---|
 | `DexcTelemetry.Logger(category)` | カテゴリのロガー。同じカテゴリは同じインスタンスである |
 | `logger.With(key, value)` | 属性を足したロガー。カテゴリとレベルは同じである。呼び出しごとではなく一度だけ作る |
+| `logger.WithEvent(name)` | 記録を名前付きのイベントにするロガー。呼び出しごとではなく一度だけ作る |
 | `logger.Verbose`から`logger.Fatal` | 記録する。compile symbolで消える。値は4個までである |
 | `logger.Error(exception, template, ...)` | 例外を一緒に記録する |
 | `logger.IsEnabled(severity)` | 記録されるかを返す |
 | `logger.Emit(...)` | アダプター用。本文はテンプレートとして読まない |
 | `TelemetryValue` | 値の型。`string`、`int`、`long`、`float`、`double`、`bool`から暗黙に変換する。ほかの型は`TelemetryValue.Of(value)`を使う |
+
+### イベント
+
+OpenTelemetryでは、`EventName`を持つログがイベントである。名前は1種類の出来事を表し、変わる値を含めない。変わる値はテンプレートの値か属性にする。
+
+```csharp
+var cleared = log.WithEvent("game.stage.cleared");
+cleared.Info("stage {Stage} cleared", stage);
+```
 
 ### テンプレート
 

@@ -16,15 +16,16 @@ namespace Dexc.Telemetry
 		readonly TelemetryLogCategory m_Category;
 
 		internal TelemetryLogger(TelemetryLogs logs, TelemetryLogCategory category)
-			: this(logs, category, Array.Empty<byte>())
+			: this(logs, category, Array.Empty<byte>(), null)
 		{
 		}
 
-		TelemetryLogger(TelemetryLogs logs, TelemetryLogCategory category, byte[] attributes)
+		TelemetryLogger(TelemetryLogs logs, TelemetryLogCategory category, byte[] attributes, string eventName)
 		{
 			m_Logs = logs;
 			m_Category = category;
 			Attributes = attributes;
+			EventName = eventName;
 		}
 
 		public string Category => m_Category.Name;
@@ -33,6 +34,9 @@ namespace Dexc.Telemetry
 
 		/// <summary>The encoded attributes every record of this logger carries.</summary>
 		internal byte[] Attributes { get; }
+
+		/// <summary>The OpenTelemetry event name of the records, or null for plain logs.</summary>
+		public string EventName { get; }
 
 		/// <summary>Whether a record of this severity would be kept. Guard the calls that have to prepare a value with this.</summary>
 		public bool IsEnabled(TelemetrySeverity severity)
@@ -52,7 +56,20 @@ namespace Dexc.Telemetry
 			TelemetryLogs.WriteAttribute(writer, key, 0, key.Length, value);
 			var attributes = new byte[writer.Position];
 			Buffer.BlockCopy(writer.Buffer, 0, attributes, 0, attributes.Length);
-			return new TelemetryLogger(m_Logs, m_Category, attributes);
+			return new TelemetryLogger(m_Logs, m_Category, attributes, EventName);
+		}
+
+		/// <summary>
+		/// A logger of the same category, level and attributes whose records are the event of this name. The name stands for
+		/// one kind of event, such as <c>game.stage.cleared</c>, so what varies goes in the values. Make it once, not per call.
+		/// </summary>
+		public TelemetryLogger WithEvent(string name)
+		{
+			if (string.IsNullOrEmpty(name))
+			{
+				throw new ArgumentException("An event needs a name.", nameof(name));
+			}
+			return new TelemetryLogger(m_Logs, m_Category, Attributes, name);
 		}
 
 		/// <summary>
