@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using Dexc.Autopilot;
 using UnityEngine;
 
+[assembly: AutopilotKeepAssembly("DexcDebugger.Samples.StealthStageDemo.Gameplay")]
+
 namespace DexcDebugger.Samples.StealthStageDemo.Autopilot
 {
 	/// <summary>What a bot sees and does each step. Everything it touches in the game it reaches through typed code.</summary>
