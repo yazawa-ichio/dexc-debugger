@@ -70,7 +70,7 @@ BackendはRuntimeへ`IAutopilotBackend`と`IAutopilotModule`だけを見せる�
 
 ### status
 
-`loadCount`、`active`、`activeState`、`steps`、`switches`、`failure`、`log`を返す。ゲーム固有の項目は`StatusRequested`で足す。`log`は直近40件とする。
+`loadCount`、`active`、`activeState`、`steps`、`switches`、`failure`、`missing`、`log`を返す。ゲーム固有の項目は`StatusRequested`で足す。`log`は直近40件とする。
 
 ## eval
 
@@ -78,7 +78,7 @@ BackendはRuntimeへ`IAutopilotBackend`と`IAutopilotModule`だけを見せる�
 - 型は`DexcEvalSnippet`、メソッドは`Eval`とする
 - 応答は`ok`、`value`、`type`、`loadMs`、`runMs`を返す。失敗時は`error`と`trace`を返す
 - `value`は文字列にして返す。生きたobjectは外へ出さない
-- `UnboundMembers`が1件でもあれば、実行せずに失敗を返す
+- `UnboundMembers`は応答の`missing`で返す。実行するかどうかはVMが決める。[メンバーの不足](#メンバーの不足)を参照する
 
 VMを分けることを、異常からの復旧の手段とする。壊れたスニペットの影響は、そのVMの中で止まる。
 
@@ -135,15 +135,18 @@ Botの例外はBotを止め、`failure`へ記録する。ゲームは止めな�
 
 - `ilruntime`と`both`は`DEXC_AUTOPILOT`を定義する
 - 検証用のビルドは、非development、Managed Stripping High、C++のReleaseとする
-- `link.xml`は構成ごとにビルド時に生成する。保持はゲームのアセンブリ、Autopilot、VMが実行時に必要とする型に絞り、すべてを保持しない
+- `link.xml`はビルド時に生成する。保持はAutopilot、`AutopilotKeepAssembly`で宣言したアセンブリと宣言した側のアセンブリ、VMが実行時に必要とする型に絞り、すべてを保持しない
+- `link.xml`の生成は、そのビルドがコンパイルしたアセンブリに`Dexc.Autopilot`があるかで決める。ビルドの方法には依存しない
+
+ライブラリはビルドの手順を持たない。`DEXC_AUTOPILOT`を定義したビルドであれば、どこで作ったPlayerでも扱う。
 
 ## 参照
 
-コンパイルの参照は、PlayerのIL2CPPビルドが残した`ManagedStripped`のアセンブリとする。
+既定の参照は、PlayerのIL2CPPビルドが残したストリップ済みのアセンブリとする。Player本体の隣の`*_BackUpThisFolder_ButDontShipItWithYourGame/Managed`にある。
 
 - Playerに残っていないAPIは、コンパイルエラーになる
 - 参照は`Publicize`で`private`を公開する。Botは製品の`private`メンバーを型付きで使える
-- 参照の一覧は`Logs/UnityTests/Autopilot/refs.rsp`に置く
+- ワークスペースでは、ビルド前のDLLやcsprojで参照を置き換えられる。差はコンパイル時に分からなくなるので、[メンバーの不足](#メンバーの不足)で扱う
 
 ## コンパイル
 
@@ -157,6 +160,28 @@ Botの例外はBotを止め、`failure`へ記録する。ゲームは止めな�
 常駐コンパイラは、参照と`Compilation`を要求の間で保持する。要求は1つずつ処理する。`refs.rsp`の更新を検知したら参照を読み直す。Botはファイルごとの構文木を保持し、更新されたファイルだけ解析し直す。
 
 常駐コンパイラは、最後の要求から30分で終了する。`--watch`のときは終了しない。
+
+参照は`refs.rsp`ごとに保持する。要求は`refs.rsp`、送り先のポート、トークンを指定でき、省略すると既定の1組を使う。
+
+## ワークスペース
+
+複数のビルドを同時に動かして比べる単位とする。
+
+- 入力はビルド済みのPlayerとする。ビルドの手順、ブランチ、成果物の取得方法を持たない
+- `workspace.json`がビルドの一覧を持つ。Playerはコピーしない
+- トークン、ポート、PID、参照はビルドごとに持つ。ポートは空きを割り当てる
+- 操作は全ビルドへ並行に行い、結果をビルドごとに返す。1つの失敗は他のビルドを止めない
+- 各Playerは別々の時間で動く。フレーム単位では揃えない
+
+Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルドの参照で1つのアセンブリへコンパイルする。同じ相対パスのファイルは`Builds/<name>`を使う。
+
+| 参照 | 内容 | 差の検出 |
+| --- | --- | --- |
+| `managed` | Playerのストリップ済みアセンブリ | コンパイル時 |
+| `dlls` | 上に指定のフォルダーのDLLを重ねる | 読み込み時 |
+| `csproj` | 上にcsprojの`HintPath`とビルド結果を重ねる | 読み込み時 |
+
+`dlls`は`--editor`を必須とする。ビルド前のDLLは`netstandard`を参照するが、Playerの`Managed`には無い。`Managed`が無いPlayerは、`--editor`でEditorのエンジンとクラスライブラリを土台にする。
 
 ## ガードレール
 
@@ -189,6 +214,17 @@ Pipelineの`IlInterpreter`で動かないコードは、3段階で止める。�
 ### ILRuntime
 
 `ilruntime.globalconfig`により、DEXC013だけを警告とし、他は無効にする。完了済みのTaskを待つ用途があるため、エラーにしない。
+
+### メンバーの不足
+
+別の参照でコンパイルしたコードは、Playerに無いメンバーを含むことがある。
+
+| VM | 動作 |
+| --- | --- |
+| ILRuntime | 読み込み時に全メソッドを調べて`missing`で返し、実行する。届いたら例外にする |
+| Pipeline | `missing`で返し、実行を拒否する |
+
+ILRuntimeの対象は、メソッド、型、フィールド、戻り値とフィールドの型の違いとする。ジェネリックの定義は実体が無いので調べず、届いたときに例外にする。黙って別の値を返さない。
 
 ## 実行の制限
 

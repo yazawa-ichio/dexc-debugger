@@ -16,6 +16,7 @@ namespace Dexc.Autopilot.Compiler
 	///   eval "snippet" [--vm ...] [--keep]           compile a snippet and run it in the Player
 	///   bot [--vm ...] [--load] [--out file]         compile the bot, and load it into the Player
 	///   status | stop
+	///   ws ...                                       builds side by side; see WorkspaceCommand
 	///
 	/// A client starts the server if nothing answers.
 	/// </summary>
@@ -30,7 +31,7 @@ namespace Dexc.Autopilot.Compiler
 			Console.OutputEncoding = new UTF8Encoding(false);
 			if (arguments.Length == 0)
 			{
-				Console.Error.WriteLine("usage: serve | eval <snippet> | bot | status | stop");
+				Console.Error.WriteLine("usage: serve | eval <snippet> | bot | status | stop | ws");
 				return 2;
 			}
 
@@ -52,7 +53,7 @@ namespace Dexc.Autopilot.Compiler
 				case "bot":
 					return Ask(port, Request(
 						"op", "bot",
-						"dir", Path.Combine(Root(), options.Value("dir", DefaultBot)),
+						"dirs", Path.Combine(Root(), options.Value("dir", DefaultBot)),
 						"vm", options.Value("vm", "ilruntime"),
 						"load", options.Has("load") ? "yes" : null,
 						"out", options.Value("out", null)
@@ -60,6 +61,8 @@ namespace Dexc.Autopilot.Compiler
 				case "status":
 				case "stop":
 					return Ask(port, Request("op", arguments[0]), arguments[0] == "status");
+				case "ws":
+					return WorkspaceCommand.Run(arguments, options, port);
 				default:
 					Console.Error.WriteLine("unknown command: " + arguments[0]);
 					return 2;
@@ -82,7 +85,7 @@ namespace Dexc.Autopilot.Compiler
 		}
 
 		/// <summary>Written by hand so a client call does not pay to load and compile a JSON library.</summary>
-		private static string Request(params string[] pairs)
+		internal static string Request(params string[] pairs)
 		{
 			var builder = new StringBuilder("{");
 			for (var index = 0; index + 1 < pairs.Length; index += 2)
@@ -124,14 +127,28 @@ namespace Dexc.Autopilot.Compiler
 				return 1;
 			}
 
+			var answer = Exchange(client, request);
+			Console.WriteLine(answer);
+			return answer != null && answer.Contains("\"ok\":true") ? 0 : 1;
+		}
+
+		/// <summary>One request to the server, starting it if it is not up.</summary>
+		internal static string Exchange(int port, string request)
+		{
+			using var client = Connect(port, true);
+			if (client == null)
+				throw new InvalidOperationException("The compiler did not start.");
+			return Exchange(client, request);
+		}
+
+		private static string Exchange(TcpClient client, string request)
+		{
 			using var stream = client.GetStream();
 			using var writer = new StreamWriter(stream, new UTF8Encoding(false));
 			using var reader = new StreamReader(stream, new UTF8Encoding(false));
 			writer.WriteLine(request);
 			writer.Flush();
-			var answer = reader.ReadLine();
-			Console.WriteLine(answer);
-			return answer != null && answer.Contains("\"ok\":true") ? 0 : 1;
+			return reader.ReadLine();
 		}
 
 		private static TcpClient Connect(int port, bool startServer)
@@ -166,7 +183,7 @@ namespace Dexc.Autopilot.Compiler
 			return null;
 		}
 
-		private sealed class Options
+		internal sealed class Options
 		{
 			private readonly Dictionary<string, string> m_Values = new Dictionary<string, string>();
 
@@ -185,6 +202,8 @@ namespace Dexc.Autopilot.Compiler
 			}
 
 			public bool Has(string name) => m_Values.ContainsKey(name);
+
+			public void Set(string name, string value = "") => m_Values[name] = value;
 
 			public string Value(string name, string fallback) => m_Values.TryGetValue(name, out var value) ? value : fallback;
 		}

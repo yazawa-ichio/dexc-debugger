@@ -101,7 +101,8 @@ def send(assembly):
     vm = os.environ.get("DEXC_EVAL_VM", "ilruntime")
     operation = {"pipeline": "eval:pipeline", "ilruntime-keep": "eval-keep:ilruntime"}.get(vm, "eval:ilruntime")
     line = token + " " + operation + " " + base64.b64encode(assembly).decode("ascii") + "\n"
-    with socket.create_connection(("127.0.0.1", 7890), timeout=30) as connection:
+    port = int(os.environ.get("DEXC_AUTOPILOT_PORT", "7890"))
+    with socket.create_connection(("127.0.0.1", port), timeout=30) as connection:
         connection.sendall(line.encode("utf-8"))
         with connection.makefile("r", encoding="utf-8") as reader:
             return json.loads(reader.readline())

@@ -22,9 +22,17 @@ namespace Dexc.Autopilot.Compiler
 		private const int WatchDelayMilliseconds = 150;
 		private const int IdleMilliseconds = 30 * 60 * 1000;
 
+		private static readonly string[] s_DefaultUsings =
+		{
+			"DexcDebugger.Samples.StealthStageDemo",
+			"DexcDebugger.Samples.StealthStageDemo.Autopilot",
+			"UnityEngine",
+		};
+
 		private readonly object m_Gate = new object();
 		private readonly ManualResetEventSlim m_Stopped = new ManualResetEventSlim();
-		private readonly BuildEngine m_Engine;
+		private readonly Dictionary<string, BuildEngine> m_Engines = new Dictionary<string, BuildEngine>(StringComparer.OrdinalIgnoreCase);
+		private readonly string m_ResponseFile;
 		private readonly PlayerLink m_Player;
 		private readonly int m_Port;
 		private readonly string m_WatchVm;
@@ -36,8 +44,8 @@ namespace Dexc.Autopilot.Compiler
 		public Server(string root, int port, string watchVm, string watchDirectory)
 		{
 			var work = Path.Combine(root, "Logs", "UnityTests", "Autopilot");
-			m_Engine = new BuildEngine(Path.Combine(work, "refs.rsp"), Path.Combine(work, "refs"));
-			m_Player = new PlayerLink(Path.Combine(work, "token"));
+			m_ResponseFile = Path.Combine(work, "refs.rsp");
+			m_Player = new PlayerLink(Path.Combine(work, "token"), null);
 			m_Port = port;
 			m_WatchVm = watchVm;
 			m_WatchDirectory = watchDirectory;
@@ -56,8 +64,24 @@ namespace Dexc.Autopilot.Compiler
 			Task.Run(WarmUp);
 			m_Stopped.Wait();
 			listener.Stop();
-			m_Engine.Dispose();
+			lock (m_Gate)
+			{
+				foreach (var engine in m_Engines.Values)
+					engine.Dispose();
+			}
 		}
+
+		/// <summary>The references a request compiles against, kept for as long as the server runs. Call with the lock held.</summary>
+		private BuildEngine Engine(JsonObject request)
+		{
+			var responseFile = (string)request["rsp"] ?? m_ResponseFile;
+			if (!m_Engines.TryGetValue(responseFile, out var engine))
+				m_Engines[responseFile] = engine = new BuildEngine(responseFile, Path.Combine(Path.GetDirectoryName(responseFile), "refs"));
+			return engine;
+		}
+
+		private PlayerLink Player(JsonObject request) =>
+			request["port"] == null ? m_Player : new PlayerLink((string)request["token"], int.Parse((string)request["port"]));
 
 		/// <summary>The first compile loads the references and compiles Roslyn itself. A request should not be what pays for that.</summary>
 		private void WarmUp()
@@ -66,10 +90,11 @@ namespace Dexc.Autopilot.Compiler
 			{
 				lock (m_Gate)
 				{
-					m_Engine.CompileSnippet("0", "ilruntime");
-					m_Engine.CompileSnippet("0", "pipeline");
+					var engine = Engine(new JsonObject());
+					engine.CompileSnippet("0", "ilruntime", s_DefaultUsings);
+					engine.CompileSnippet("0", "pipeline", s_DefaultUsings);
 					if (m_WatchDirectory != null)
-						m_Engine.CompileProject(m_WatchDirectory, Path.GetFileName(m_WatchDirectory), m_WatchVm);
+						engine.CompileProject(new[] { m_WatchDirectory }, Path.GetFileName(m_WatchDirectory), m_WatchVm);
 				}
 			}
 			catch (Exception exception)
@@ -128,7 +153,8 @@ namespace Dexc.Autopilot.Compiler
 				case "bot":
 					return Bot(request);
 				case "status":
-					return new JsonObject { ["ok"] = true, ["references"] = m_Engine.ReferenceCount, ["watching"] = m_WatchDirectory };
+					lock (m_Gate)
+						return new JsonObject { ["ok"] = true, ["references"] = Engine(request).ReferenceCount, ["engines"] = m_Engines.Count, ["watching"] = m_WatchDirectory };
 				case "stop":
 					m_Stopped.Set();
 					return new JsonObject { ["ok"] = true };
@@ -141,15 +167,17 @@ namespace Dexc.Autopilot.Compiler
 		{
 			var clock = Stopwatch.StartNew();
 			var vm = (string)request["vm"] ?? "ilruntime";
+			var named = (string)request["usings"];
+			var usings = named == null ? s_DefaultUsings : named.Split(';', StringSplitOptions.RemoveEmptyEntries);
 			BuildResult result;
 			lock (m_Gate)
-				result = m_Engine.CompileSnippet((string)request["snippet"], vm);
+				result = Engine(request).CompileSnippet((string)request["snippet"], vm, usings);
 			if (!result.Ok)
 				return Refused(result);
 			if (request["send"] == null)
 				return Compiled(result, true);
 			var verb = request["keep"] != null ? "eval-keep:" : "eval:";
-			var answer = m_Player.Send(verb + vm, result.Assembly);
+			var answer = Player(request).Send(verb + vm, result.Assembly);
 			answer["compileMs"] = result.Milliseconds;
 			answer["totalMs"] = clock.ElapsedMilliseconds;
 			AddWarnings(answer, result);
@@ -158,9 +186,12 @@ namespace Dexc.Autopilot.Compiler
 
 		private JsonObject Bot(JsonObject request)
 		{
-			var directory = (string)request["dir"];
+			var directories = ((string)request["dirs"]).Split(';', StringSplitOptions.RemoveEmptyEntries);
+			var name = (string)request["name"] ?? Path.GetFileName(directories[0].TrimEnd('/', '\\'));
 			var vm = (string)request["vm"] ?? "ilruntime";
-			var result = CompileBot(directory, vm);
+			BuildResult result;
+			lock (m_Gate)
+				result = Engine(request).CompileProject(directories, name, vm);
 			if (!result.Ok)
 				return Refused(result);
 			var path = (string)request["out"];
@@ -168,14 +199,8 @@ namespace Dexc.Autopilot.Compiler
 				File.WriteAllBytes(path, result.Assembly);
 			var answer = Compiled(result, string.IsNullOrEmpty(path) && request["load"] == null);
 			if (request["load"] != null)
-				answer["player"] = m_Player.Send("load:" + vm, result.Assembly);
+				answer["player"] = Player(request).Send("load:" + vm, result.Assembly);
 			return answer;
-		}
-
-		private BuildResult CompileBot(string directory, string vm)
-		{
-			lock (m_Gate)
-				return m_Engine.CompileProject(directory, Path.GetFileName(directory.TrimEnd('/', '\\')), vm);
 		}
 
 		private static JsonObject Refused(BuildResult result)
@@ -229,7 +254,9 @@ namespace Dexc.Autopilot.Compiler
 		{
 			try
 			{
-				var result = CompileBot(m_WatchDirectory, m_WatchVm);
+				BuildResult result;
+				lock (m_Gate)
+					result = Engine(new JsonObject()).CompileProject(new[] { m_WatchDirectory }, Path.GetFileName(m_WatchDirectory), m_WatchVm);
 				if (!result.Ok)
 				{
 					Console.WriteLine(string.Join(Environment.NewLine, result.Errors));
@@ -252,18 +279,26 @@ namespace Dexc.Autopilot.Compiler
 		private const int TimeoutMilliseconds = 30000;
 
 		private readonly string m_TokenFile;
+		private readonly int? m_Port;
 
-		public PlayerLink(string tokenFile) => m_TokenFile = tokenFile;
+		/// <param name="port">Null for DEXC_AUTOPILOT_PORT, read when a request goes out.</param>
+		public PlayerLink(string tokenFile, int? port)
+		{
+			m_TokenFile = tokenFile;
+			m_Port = port;
+		}
 
 		public JsonObject Send(string operation, byte[] payload)
 		{
-			var port = Environment.GetEnvironmentVariable("DEXC_AUTOPILOT_PORT");
+			var named = Environment.GetEnvironmentVariable("DEXC_AUTOPILOT_PORT");
+			var port = m_Port ?? (string.IsNullOrEmpty(named) ? 7890 : int.Parse(named));
 			using var client = new TcpClient { NoDelay = true, ReceiveTimeout = TimeoutMilliseconds, SendTimeout = TimeoutMilliseconds };
-			client.Connect(IPAddress.Loopback, string.IsNullOrEmpty(port) ? 7890 : int.Parse(port));
+			client.Connect(IPAddress.Loopback, port);
 			using var stream = client.GetStream();
 			using var writer = new StreamWriter(stream, new UTF8Encoding(false));
 			using var reader = new StreamReader(stream, new UTF8Encoding(false));
-			writer.WriteLine(File.ReadAllText(m_TokenFile).Trim() + " " + operation + " " + Convert.ToBase64String(payload));
+			var line = File.ReadAllText(m_TokenFile).Trim() + " " + operation;
+			writer.WriteLine(payload == null ? line : line + " " + Convert.ToBase64String(payload));
 			writer.Flush();
 			return JsonNode.Parse(reader.ReadLine()).AsObject();
 		}

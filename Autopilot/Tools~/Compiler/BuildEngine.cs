@@ -31,10 +31,7 @@ namespace Dexc.Autopilot.Compiler
 		private const string SnippetTemplate =
 			"using System.Collections.Generic;\n"
 			+ "using System.Threading.Tasks;\n"
-			+ "using DexcDebugger.Samples.StealthStageDemo;\n"
-			+ "using DexcDebugger.Samples.StealthStageDemo.Autopilot;\n"
-			+ "using UnityEngine;\n"
-			+ "\n"
+			+ "{usings}\n"
 			+ "{types}\n"
 			+ "\n"
 			+ "public static class DexcEvalSnippet\n"
@@ -78,23 +75,25 @@ namespace Dexc.Autopilot.Compiler
 
 		public void Dispose() => m_Patcher?.Dispose();
 
-		public BuildResult CompileSnippet(string snippet, string vm)
+		public BuildResult CompileSnippet(string snippet, string vm, IEnumerable<string> usings)
 		{
 			var clock = Stopwatch.StartNew();
 			Refresh();
-			var tree = CSharpSyntaxTree.ParseText(Wrap(snippet), s_ParseOptions, "Eval.cs", Encoding.UTF8);
+			var tree = CSharpSyntaxTree.ParseText(Wrap(snippet, usings), s_ParseOptions, "Eval.cs", Encoding.UTF8);
 			var result = Finish(m_SnippetBase.AddSyntaxTrees(tree), vm, false);
 			result.Milliseconds = clock.ElapsedMilliseconds;
 			return result;
 		}
 
-		public BuildResult CompileProject(string directory, string assemblyName, string vm)
+		/// <param name="directories">The bot's folders. A file replaces the one at the same path in the folders before it.</param>
+		public BuildResult CompileProject(IReadOnlyList<string> directories, string assemblyName, string vm)
 		{
 			var clock = Stopwatch.StartNew();
 			Refresh();
-			var key = Path.GetFullPath(directory);
+			var full = directories.Select(Path.GetFullPath).ToList();
+			var key = string.Join(";", full);
 			if (!m_Projects.TryGetValue(key, out var project))
-				m_Projects[key] = project = new BotProject(key, assemblyName, s_ParseOptions, s_Options);
+				m_Projects[key] = project = new BotProject(full, assemblyName, s_ParseOptions, s_Options);
 			var result = Finish(project.Update(m_References), vm, true);
 			result.Milliseconds = clock.ElapsedMilliseconds;
 			return result;
@@ -120,13 +119,14 @@ namespace Dexc.Autopilot.Compiler
 			m_Patcher = new EnumPatcher(m_ReferenceDirectory);
 		}
 
-		private static string Wrap(string snippet)
+		private static string Wrap(string snippet, IEnumerable<string> usings)
 		{
 			var marker = snippet.LastIndexOf("\n@@\n", StringComparison.Ordinal);
 			var types = marker < 0 ? string.Empty : snippet.Substring(0, marker);
 			var code = marker < 0 ? snippet : snippet.Substring(marker + 4);
 			var body = code.Contains(';') ? code + "\nreturn null;" : "return (object)(" + code + ");";
-			return SnippetTemplate.Replace("{types}", types).Replace("{body}", body);
+			var header = string.Concat(usings.Select(name => "using " + name + ";\n"));
+			return SnippetTemplate.Replace("{usings}", header).Replace("{types}", types).Replace("{body}", body);
 		}
 
 		/// <summary>ILRuntime only warns about a blocking wait. The Pipeline interpreter refuses all it cannot run.</summary>
@@ -181,14 +181,14 @@ namespace Dexc.Autopilot.Compiler
 	internal sealed class BotProject
 	{
 		private readonly Dictionary<string, (long Stamp, SyntaxTree Tree)> m_Files = new Dictionary<string, (long, SyntaxTree)>(StringComparer.OrdinalIgnoreCase);
-		private readonly string m_Directory;
+		private readonly IReadOnlyList<string> m_Directories;
 		private readonly CSharpParseOptions m_ParseOptions;
 		private CSharpCompilation m_Compilation;
 		private IReadOnlyList<MetadataReference> m_References;
 
-		public BotProject(string directory, string assemblyName, CSharpParseOptions parseOptions, CSharpCompilationOptions options)
+		public BotProject(IReadOnlyList<string> directories, string assemblyName, CSharpParseOptions parseOptions, CSharpCompilationOptions options)
 		{
-			m_Directory = directory;
+			m_Directories = directories;
 			m_ParseOptions = parseOptions;
 			m_Compilation = CSharpCompilation.Create(assemblyName, null, null, options);
 		}
@@ -227,12 +227,18 @@ namespace Dexc.Autopilot.Compiler
 			var separator = Path.DirectorySeparatorChar;
 			var bin = separator + "bin" + separator;
 			var obj = separator + "obj" + separator;
-			foreach (var path in Directory.EnumerateFiles(m_Directory, "*.cs", SearchOption.AllDirectories))
+			var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var directory in m_Directories.Where(Directory.Exists))
 			{
-				var relative = path.Substring(m_Directory.Length);
-				if (!relative.Contains(bin) && !relative.Contains(obj))
-					yield return path;
+				foreach (var path in Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories))
+				{
+					var relative = path.Substring(directory.Length);
+					if (!relative.Contains(bin) && !relative.Contains(obj))
+						files[relative] = path;
+				}
 			}
+
+			return files.Values;
 		}
 	}
 }

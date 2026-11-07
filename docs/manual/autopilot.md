@@ -30,6 +30,12 @@ Botの操作は、仮想のGamepadを通してプレイヤーの入力と同じ�
 "defineConstraints": ["!DISABLE_DEXC_DEBUGGER", "UNITY_EDITOR || DEXC_AUTOPILOT"]
 ```
 
+Botが`private`メンバーを使うアセンブリを、ゲーム用のアセンブリで宣言します。Autopilotを含むビルドだけ、ストリップの対象から外れます。
+
+```csharp
+[assembly: AutopilotKeepAssembly("MyGame.Gameplay")]
+```
+
 Contextに、Botへ渡すゲームの入口と操作を書きます。
 
 ```csharp
@@ -71,6 +77,13 @@ void Update()
 仮想デバイスの作り方は`StealthAutopilotGamepad.cs`を参照してください。`Gamepad`を継承し、`InputSystem.QueueStateEvent`で状態を送ります。
 
 ## Playerの準備
+
+ビルドの方法は問いません。手元でもCIでも、次の条件を満たしたPlayerを使えます。
+
+- `DEXC_AUTOPILOT`を定義してビルドする
+- Player本体と、`*_BackUpThisFolder_ButDontShipItWithYourGame/Managed`を残す。[ワークスペース](#ワークスペース)の`managed`がこのフォルダーを参照に使います
+
+サンプルは次のスクリプトでビルドして動かせます。
 
 ```sh
 sh tools/unity-tests/run-autopilot-player.sh build
@@ -129,6 +142,8 @@ return counter.Value * 21;
 eval同士やBotとの間で、変数は共有されません。続きの処理に値を渡すときは、ゲーム側の状態やBlackboardを使います。
 
 Playerに残っていないAPIは、実行時ではなくコンパイルエラーになります。
+
+別のビルドの参照でコンパイルしたスニペットでは、Playerに無いメンバーは応答の`missing`に一覧で返ります。そのメンバーに届くと例外で止まり、届かなければそのまま動きます。
 
 ## Bot
 
@@ -206,6 +221,77 @@ dotnet build "Autopilot/Tools~/Compiler/Dexc.Autopilot.Compiler.csproj" -c Relea
 Playerを再ビルドして`refs`を実行すると、参照は自動で読み直します。
 
 最後の要求から30分たつと、常駐コンパイラは自動で終了します。`serve --watch`で起動したときは終了しません。
+
+## ワークスペース
+
+複数のビルドを並べて動かし、同じBotやスニペットを同時に試します。バグ修正ごとのビルドを比べるときに使います。
+
+コマンドは常駐コンパイラの`ws`です。ビルド済みのPlayerを登録して使うので、どこでビルドしたかは問いません。
+
+```sh
+Dexc.Autopilot.Compiler ws init D:/work/stealth --using UnityEngine,MyGame --publicize MyGame.Gameplay
+cd D:/work/stealth
+Dexc.Autopilot.Compiler ws add fix-1234 D:/ci/1234/Player
+Dexc.Autopilot.Compiler ws add fix-1250 D:/ci/1250/Player
+Dexc.Autopilot.Compiler ws start
+Dexc.Autopilot.Compiler ws bot --load
+Dexc.Autopilot.Compiler ws eval "MyGame.Instance.Score"
+```
+
+結果はビルドごとに1行で返ります。1つが失敗しても、他のビルドには影響しません。
+
+| コマンド | 内容 |
+| --- | --- |
+| `ws init <dir>` | ワークスペースを作ります。`--using`はスニペットの`using`、`--publicize`は`private`を使うアセンブリです |
+| `ws add <name> <player>` | ビルドを登録し、参照を作ります。Playerはコピーしません |
+| `ws remove <name>` | 登録を消します |
+| `ws refs` | 参照を作り直します |
+| `ws start`／`ws stop` | Playerを起動、停止します。`--headless`でウィンドウなしで起動します |
+| `ws status` | 各Playerの状態を表示します |
+| `ws bot --load` | Botをビルドごとにコンパイルし、読み込みます |
+| `ws eval "<snippet>"` | 動いている全ビルドでスニペットを実行します |
+| `ws watch` | 保存を検知して読み込みます。`Common`の保存は全ビルドへ、`Builds/<name>`の保存はそのビルドへ送ります |
+
+`--build a,b`で対象のビルドを絞れます。`workspace.json`のある場所の外から使うときは、`DEXC_WORKSPACE`で指定します。
+
+ワークスペースは、ブランチの切り替えで消えない場所に置きます。
+
+```text
+workspace.json
+Common/              全ビルドで共通のBot
+Builds/fix-1234/     そのビルド専用のBot
+.state/              参照、トークン、ポート、ログ
+```
+
+### 共通のBotと専用のBot
+
+`Common`と`Builds/<name>`を合わせて、ビルドごとに1つのアセンブリへコンパイルします。`Builds/<name>`に同じ相対パスのファイルがあれば、`Common`のファイルと置き換わります。
+
+専用の動きを足すときは、エントリーのファイルを専用のフォルダーへ置きます。先に宣言したマシンが優先されるので、共通の動きを上書きできます。
+
+```csharp
+public static void Configure(AutopilotBuilder<MyContext> builder)
+{
+	builder.Machine("Repro1234").When(IsReproStage).Step(Repro);
+	Common.Declare(builder);
+}
+```
+
+### 参照の選び方
+
+`ws add`のオプションで、コンパイルに使う参照を選びます。
+
+| 参照 | オプション | 差が分かるとき |
+| --- | --- | --- |
+| `managed` | なし | コンパイル時。Playerに残ったアセンブリを使います |
+| `dlls` | `--dlls <folder>,... --editor <dir>` | 読み込み時。指定のフォルダーのDLLで置き換えます |
+| `csproj` | `--csproj <file>` | 読み込み時。csprojをビルドしたDLLで置き換えます |
+
+`dlls`と`csproj`は、Playerとコードが完全に一致していなくても動かしたいときに使います。`--editor`にはUnity Editorのフォルダーを指定します。ビルド前のDLLが必要とする`netstandard`を補います。Playerに`Managed`が残っていないときは、エンジンとクラスライブラリも補います。
+
+差があるメンバーは、読み込みの応答と`status`の`missing`に一覧で出ます。Botはそのまま動き、そのメンバーに届くと例外で止まります。内容は`failure`に出ます。
+
+`Library/ScriptAssemblies`のDLLやcsprojは、Editor向けにコンパイルされています。`UNITY_EDITOR`の中のメンバーもコンパイルは通り、`missing`で初めて分かります。
 
 ## 使えないもの
 
