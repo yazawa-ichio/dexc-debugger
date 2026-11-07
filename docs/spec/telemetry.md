@@ -23,7 +23,7 @@
 - `DEXC_DEBUGGER`に連動しない
 - コーディング規約は[DexcDebugger コーディング規約](coding-conventions.md)に従う
 - mutable staticは`TelemetryRoot.s_Current`だけとし、実行中の状態はすべてここから辿る
-- main thread専用とする。例外は`Application.logMessageReceivedThreaded`のコールバックだけである。Unityがログを出したスレッドで呼ぶので、ロック付きのキューへ入れるだけにする
+- main thread専用とする。例外はログの記録で、`TelemetryLogger`とアダプターはどのスレッドからも呼べる。Unityがログを出したスレッドでコールバックを呼ぶためである。記録はロック付きのキューへ入れるだけにする
 
 ## レベル
 
@@ -48,7 +48,7 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 | Standard | システムごとの集計、ステージの区間 |
 | Detailed | 毎フレームの値、メソッド単位のspan |
 
-重大度はcompile symbolで消せる。1つ定義すると、それ以上の重大度の呼び出しが残る。どれも無ければ、`DexcTelemetry.LogInfo`などの呼び出しはすべて消える。
+重大度はcompile symbolで消せる。1つ定義すると、それ以上の重大度の呼び出しが残る。どれも無ければ、`logger.Info`などの呼び出しはすべて消える。
 
 | シンボル | 残る呼び出し |
 |---|---|
@@ -59,7 +59,7 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 | `DEXC_TELEMETRY_LOG_ERROR` | Error以上 |
 | `DEXC_TELEMETRY_LOG_FATAL` | Fatal |
 
-`TelemetryOptions.MinimumSeverity`（既定はInfo）は実行時の下限で、Unityのログにも効く。
+シンボルとは別に、実行時のレベルを持つ。シンボルが残した呼び出しだけに効くので、`DEXC_TELEMETRY_LOG_VERBOSE`を定義したビルドをInfoで動かし、後からVerboseを集められる。詳しくは[Logs](#logs)に書く。
 
 詳細度はcompile symbolで消せる。1つ定義すると、そのレベルより粗い呼び出しも残る。どれも無ければ、記録の呼び出しはすべて消える。引数も評価されない。
 
@@ -117,14 +117,87 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 
 ## Logs
 
-- `DexcTelemetry.LogVerbose`から`LogFatal`は、テレメトリーだけに記録する。Unityのログには出さない
-- `TelemetryOptions.CollectUnityLogs`（既定は有効）で、Unityのログを`Application.logMessageReceivedThreaded`から受ける。main thread以外のログも届く
-- `LogType.Log`はInfo、`Warning`はWarning、`Error`と`Assert`と`Exception`はErrorとする
-- 例外は本文のほかに、`exception.type`、`exception.message`、`exception.stacktrace`を属性に持つ。Unityが渡す`Type: message`を分けて作る
-- Warning以上のスタックトレースは`code.stacktrace`に持つ。Infoは持たない
-- 本文とスタックトレースは4096文字までとし、サロゲートペアの途中では切らない
-- キューは1024件である。溢れた分は捨てて、`dexc.telemetry.logs.dropped`で数える
+ロガーはカテゴリごとのインスタンスである。
+
+```csharp
+var log = DexcTelemetry.Logger("Game.Stage").With("mode", "hard");
+log.Info("stage {Stage} took {Seconds:F2}", stage, seconds);
+log.Error(exception, "stage {Stage} failed", stage);
+```
+
+| 型、メンバー | 内容 |
+|---|---|
+| `DexcTelemetry.Logger(category)` | カテゴリのロガー。同じカテゴリは同じインスタンスである |
+| `logger.With(key, value)` | 属性を足したロガー。カテゴリとレベルは同じである。呼び出しごとではなく一度だけ作る |
+| `logger.Verbose`から`logger.Fatal` | 記録する。compile symbolで消える。値は4個までである |
+| `logger.Warning`、`Error`、`Fatal`（`Exception`付き） | 例外を一緒に記録する |
+| `logger.Log(severity, template, ...)` | 重大度を実行時に決める。compile symbolでは消えない |
+| `logger.IsEnabled(severity)` | 記録されるかを返す |
+| `logger.Emit(...)` | アダプター用。本文はテンプレートとして読まない |
+| `TelemetryValue` | 値の型。`string`、`int`、`long`、`float`、`double`、`bool`から暗黙に変換する。ほかの型は`TelemetryValue.Of(value)`を使う |
+
+### テンプレート
+
+形式は公式の.NETのロガーと同じである。
+
+- `{Name}`の穴に値を順に当てる。名前は値の順番に関係しない。`{Name:F2}`の`:`から後は書式である。`{{`と`}}`は波括弧そのものである
+- Bodyはテンプレートのままとし、値は名前をキーにした属性にする。数値と真偽値は型を保つ
+- `TelemetryOptions.IncludeFormattedMessage`を有効にすると、Bodyは値を埋めた文になる。属性は変わらない。文を作るので確保が発生する
+- 穴より値が多ければ、余りは`arg1`のように位置をキーにする。値より穴が多ければ、余った穴は無視する
+- `TelemetryValue.Of`の`ToString`は書き出すときに呼ぶ。例外を投げても出力は止めない
+
+### 確保しないこと
+
+- レベルより下の呼び出しは、確保も文字列の組み立てもせずに戻る。値は暗黙の変換でも箱詰めしない。`params`も使わない
+- `TelemetryValue.Of`に構造体や列挙型を渡すと箱詰めが起きる。必要なら`logger.IsEnabled`で囲む
+- 記録する場合も、数値、真偽値、文字列の値なら確保しない
+
+### レベル
+
+- `DexcTelemetry.LogLevel`が既定のレベルである。`TelemetryOptions.MinimumSeverity`（既定はInfo）を開始時の値にする
+- `DexcTelemetry.SetLogLevel(category, level)`はカテゴリとその下に効く。`Game`は`Game.Stage`も含み、`GameOver`は含まない。一番長く一致したものを使う。`ClearLogLevel`で戻す
+- いつでも変えられる。ロガーを作り直す必要はない
+
+### 書き出し
+
+- カテゴリはInstrumentationScopeの名前にする。公式と同じである。カテゴリが変わるとScopeLogsを分け、記録の順番は保つ
+- `With`の属性は、ロガーの作成時にバイト列にし、各記録へコピーする
+- 例外は`exception.type`、`exception.message`、`exception.stacktrace`を属性に持つ。`Exception`を渡した場合は`GetType().Name`と`ToString()`を使う。公式と同じである
+- Warning以上で文字列のスタックトレースがあれば`code.stacktrace`に持つ。Infoは持たない
+- 本文とスタックトレースは4096文字まで、属性の値は1024文字までとし、サロゲートペアの途中では切らない
+- キューは1024件である。溢れた分と、1フレームに収まらない記録は捨てて、`dexc.telemetry.logs.dropped`で数える
 - エンコードはmain threadで毎フレーム行い、64KBのバッファーへためる。埋まると1フレーム書く。Error以上があればすぐ書く。残りは書き出しの間隔で書く
+
+### アダプター
+
+別のロガーの記録は`ITelemetryLogAdapter`で取り込む。`TelemetryOptions.LogAdapters`に渡すと、開始時に`Attach`、終了時に`Detach`を呼ぶ。
+
+```csharp
+sealed class OtherLoggerAdapter : ITelemetryLogAdapter
+{
+	TelemetryLogger m_Logger;
+
+	public void Attach()
+	{
+		m_Logger = DexcTelemetry.Logger("Other.Library");
+		OtherLogger.Received += OnReceived;
+	}
+
+	public void Detach()
+	{
+		OtherLogger.Received -= OnReceived;
+	}
+
+	void OnReceived(string message)
+	{
+		m_Logger.Emit(TelemetrySeverity.Info, message);
+	}
+}
+```
+
+- `Emit`の本文は平文である。他のロガーの文に波括弧があっても穴として読まない
+- `UnityLogAdapter`がUnityのログを取り込むアダプターである。`TelemetryOptions.CollectUnityLogs`（既定は有効）で自動で付く。カテゴリは`Unity`で、`SetLogLevel("Unity", ...)`で絞れる
+- `LogType.Log`はInfo、`Warning`はWarning、`Error`と`Assert`と`Exception`はErrorとする。Unityの例外は`Type: message`の文字列から属性を作る
 
 ## 実行
 

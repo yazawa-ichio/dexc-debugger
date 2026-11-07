@@ -23,6 +23,9 @@ namespace Dexc.Telemetry
 		internal const int KeyValueKey = 1;
 		internal const int KeyValueValue = 2;
 		internal const int AnyValueString = 1;
+		internal const int AnyValueBoolean = 2;
+		internal const int AnyValueInteger = 3;
+		internal const int AnyValueDouble = 4;
 
 		internal const int MetricName = 1;
 		internal const int MetricUnit = 3;

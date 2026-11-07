@@ -20,7 +20,7 @@ namespace Dexc.Telemetry
 
 		TelemetryFrameWriter m_MetricsFrames;
 		TelemetryFrameWriter m_LogFrames;
-		bool m_ListensToUnity;
+		readonly List<ITelemetryLogAdapter> m_Adapters = new List<ITelemetryLogAdapter>();
 		TelemetryDriver m_Driver;
 		TelemetrySources m_Sources;
 		double m_Interval;
@@ -58,13 +58,21 @@ namespace Dexc.Telemetry
 		{
 			Metrics.SetResource(resource);
 			Metrics.Detail = options.Detail;
-			Logs.Minimum = options.MinimumSeverity;
+			Logs.DefaultLevel = options.MinimumSeverity;
+			Logs.IncludeFormattedMessage = options.IncludeFormattedMessage;
 			m_MetricsFrames = metricsFrames;
 			m_LogFrames = logFrames;
 			if (options.CollectUnityLogs)
 			{
-				Application.logMessageReceivedThreaded += Logs.OnUnityLog;
-				m_ListensToUnity = true;
+				m_Adapters.Add(new UnityLogAdapter());
+			}
+			if (options.LogAdapters != null)
+			{
+				m_Adapters.AddRange(options.LogAdapters);
+			}
+			foreach (var adapter in m_Adapters)
+			{
+				adapter.Attach();
 			}
 			m_Interval = options.ExportIntervalSeconds;
 			m_NextExport = now + m_Interval;
@@ -146,11 +154,11 @@ namespace Dexc.Telemetry
 
 		void Close()
 		{
-			if (m_ListensToUnity)
+			foreach (var adapter in m_Adapters)
 			{
-				Application.logMessageReceivedThreaded -= Logs.OnUnityLog;
-				m_ListensToUnity = false;
+				adapter.Detach();
 			}
+			m_Adapters.Clear();
 			m_MetricsFrames?.Dispose();
 			m_MetricsFrames = null;
 			m_LogFrames?.Dispose();

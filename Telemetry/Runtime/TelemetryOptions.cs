@@ -23,11 +23,20 @@ namespace Dexc.Telemetry
 		/// <summary>Whether to collect the frame time, memory and GC of Unity, and the cost of this package.</summary>
 		public bool CollectUnityMetrics = true;
 
-		/// <summary>Whether to collect what is logged through Unity, on any thread, including exceptions.</summary>
+		/// <summary>Whether to collect what is logged through Unity, with a <see cref="UnityLogAdapter"/>.</summary>
 		public bool CollectUnityLogs = true;
 
-		/// <summary>The lowest severity kept, for Unity logs and the calls the compile symbols kept.</summary>
+		/// <summary>Other loggers to bring in. They are attached when telemetry starts and detached when it stops.</summary>
+		public IReadOnlyList<ITelemetryLogAdapter> LogAdapters;
+
+		/// <summary>The level of the categories without one of their own. <see cref="DexcTelemetry.LogLevel"/> changes it later.</summary>
 		public TelemetrySeverity MinimumSeverity = TelemetrySeverity.Info;
+
+		/// <summary>
+		/// Whether the body of a record is the text with the values filled in. By default it is the template, as in the
+		/// official SDK, and the values are attributes either way. Making the text allocates.
+		/// </summary>
+		public bool IncludeFormattedMessage;
 
 		/// <summary>The size at which a file ends and the next one begins.</summary>
 		public long MaximumFileBytes = 8L * 1024 * 1024;

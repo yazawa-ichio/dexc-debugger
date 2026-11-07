@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using UnityEngine;
 
@@ -77,49 +76,33 @@ namespace Dexc.Telemetry
 			return TelemetryRoot.Current.Metrics.Histogram(name, unit, bounds);
 		}
 
-		/// <summary>Records a log. Unlike Unity logs this goes to telemetry only.</summary>
-		[Conditional(TelemetrySymbols.LogVerbose)]
-		public static void LogVerbose(string message)
+		/// <summary>The logger of a category, made on first use. Any thread.</summary>
+		/// <exception cref="ArgumentException">The category is empty.</exception>
+		public static TelemetryLogger Logger(string category)
 		{
-			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Verbose, message, null, false);
+			return TelemetryRoot.Current.Logs.Logger(category);
 		}
 
-		/// <inheritdoc cref="LogVerbose"/>
-		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug)]
-		public static void LogDebug(string message)
+		/// <summary>
+		/// The level of the categories without one of their own. It works on the calls the compile symbols kept, so a build
+		/// that keeps Verbose can start at Info and collect Verbose later.
+		/// </summary>
+		public static TelemetrySeverity LogLevel
 		{
-			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Debug, message, null, false);
+			get => TelemetryRoot.Current.Logs.DefaultLevel;
+			set => TelemetryRoot.Current.Logs.DefaultLevel = value;
 		}
 
-		/// <inheritdoc cref="LogVerbose"/>
-		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
-		public static void LogInfo(string message)
+		/// <summary>Sets the level of a category and those under it: <c>Game</c> also covers <c>Game.Stage</c>. The longest match wins.</summary>
+		public static void SetLogLevel(string category, TelemetrySeverity level)
 		{
-			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Info, message, null, false);
+			TelemetryRoot.Current.Logs.SetLevel(category, level);
 		}
 
-		/// <inheritdoc cref="LogVerbose"/>
-		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
-		[Conditional(TelemetrySymbols.LogWarning)]
-		public static void LogWarning(string message)
+		/// <summary>Removes what <see cref="SetLogLevel"/> set for this category.</summary>
+		public static void ClearLogLevel(string category)
 		{
-			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Warning, message, null, false);
-		}
-
-		/// <inheritdoc cref="LogVerbose"/>
-		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
-		[Conditional(TelemetrySymbols.LogWarning), Conditional(TelemetrySymbols.LogError)]
-		public static void LogError(string message)
-		{
-			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Error, message, null, false);
-		}
-
-		/// <inheritdoc cref="LogVerbose"/>
-		[Conditional(TelemetrySymbols.LogVerbose), Conditional(TelemetrySymbols.LogDebug), Conditional(TelemetrySymbols.LogInfo)]
-		[Conditional(TelemetrySymbols.LogWarning), Conditional(TelemetrySymbols.LogError), Conditional(TelemetrySymbols.LogFatal)]
-		public static void LogFatal(string message)
-		{
-			TelemetryRoot.Current.Logs.Add(TelemetrySeverity.Fatal, message, null, false);
+			TelemetryRoot.Current.Logs.ClearLevel(category);
 		}
 
 		static List<KeyValuePair<string, string>> Resource(TelemetryOptions options, string run)
