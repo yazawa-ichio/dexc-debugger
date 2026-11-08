@@ -1,0 +1,133 @@
+:root {
+	--background: #f6f7f9;
+	--surface: #ffffff;
+	--border: #d9dde3;
+	--text: #1d2330;
+	--muted: #5d6675;
+	--accent: #2f6fdb;
+	--accent-soft: #dce8fb;
+	--danger: #c23b3b;
+	--danger-soft: #fbe3e3;
+	--ok: #2e8b57;
+	--mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--background: #14171c;
+		--surface: #1c2027;
+		--border: #333a45;
+		--text: #e3e7ee;
+		--muted: #97a0ae;
+		--accent: #6a9ef5;
+		--accent-soft: #233651;
+		--danger: #ef7272;
+		--danger-soft: #4a2626;
+		--ok: #5cc28a;
+	}
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--background);
+	color: var(--text);
+	font: 14px/1.5 system-ui, "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+
+main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+
+h1 { font-size: 18px; margin: 4px 0 12px; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+
+.dexc-nav {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	align-items: center;
+	padding: 8px 16px;
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+}
+
+.dexc-nav a {
+	color: var(--muted);
+	text-decoration: none;
+	padding: 4px 10px;
+	border-radius: 6px;
+}
+
+.dexc-nav a.current, .dexc-nav a:hover { color: var(--text); background: var(--accent-soft); }
+
+.dexc-nav-gap { margin-left: 12px; color: var(--muted); font-size: 12px; }
+
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 12px;
+	min-width: 0;
+}
+
+.row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+
+.badge {
+	display: inline-block;
+	padding: 0 8px;
+	border-radius: 10px;
+	font-size: 12px;
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+.badge.stopped { background: var(--border); color: var(--muted); }
+.badge.danger { background: var(--danger-soft); color: var(--danger); }
+
+.muted { color: var(--muted); }
+
+.failure {
+	background: var(--danger-soft);
+	color: var(--danger);
+	border-radius: 6px;
+	padding: 6px 8px;
+	white-space: pre-wrap;
+	font-family: var(--mono);
+	font-size: 12px;
+	max-height: 160px;
+	overflow: auto;
+}
+
+.log {
+	font-family: var(--mono);
+	font-size: 12px;
+	white-space: pre-wrap;
+	max-height: 220px;
+	overflow: auto;
+	margin: 8px 0 0;
+	color: var(--muted);
+}
+
+select, button, input, textarea {
+	font: inherit;
+	color: var(--text);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 4px 8px;
+}
+
+button { cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.machine { margin-bottom: 16px; }
+.machine svg { display: block; max-width: 100%; height: auto; }
+.machine .state rect { fill: var(--surface); stroke: var(--border); }
+.machine .state text { fill: var(--text); font-size: 12px; }
+.machine .state.resume rect { stroke: var(--accent); stroke-width: 2; }
+.machine .state.current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+.machine .edge { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.machine marker path { fill: var(--muted); }

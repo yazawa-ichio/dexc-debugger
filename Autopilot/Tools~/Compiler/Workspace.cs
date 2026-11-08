@@ -84,8 +84,14 @@ namespace Dexc.Autopilot.Compiler
 				directory = directory.Parent;
 			if (directory == null)
 				throw new InvalidOperationException("No " + FileName + " here or above. Set DEXC_WORKSPACE, or run ws init.");
-			var text = System.IO.File.ReadAllText(Path.Combine(directory.FullName, FileName));
-			return new Workspace(directory.FullName, JsonSerializer.Deserialize<WorkspaceFile>(text, s_Json));
+			return Open(directory.FullName);
+		}
+
+		/// <summary>The workspace in this folder, read as it is now.</summary>
+		public static Workspace Open(string directory)
+		{
+			var text = System.IO.File.ReadAllText(Path.Combine(directory, FileName));
+			return new Workspace(directory, JsonSerializer.Deserialize<WorkspaceFile>(text, s_Json));
 		}
 
 		public void Save() => System.IO.File.WriteAllText(Path.Combine(Directory, FileName), JsonSerializer.Serialize(File, s_Json));
@@ -250,8 +256,11 @@ namespace Dexc.Autopilot.Compiler
 		{
 			if (!IsRunning)
 				return null;
-			return new PlayerLink(TokenFile, int.Parse(Port)).Send("status", null);
+			return Send("status", null);
 		}
+
+		/// <summary>One request to the running Player.</summary>
+		public JsonObject Send(string operation, byte[] payload) => new PlayerLink(TokenFile, int.Parse(Port)).Send(operation, payload);
 
 		/// <param name="seed">Put into the telemetry of the run as dexc.seed, for the bot or the game to read the same way.</param>
 		public void Start(bool headless, string seed)

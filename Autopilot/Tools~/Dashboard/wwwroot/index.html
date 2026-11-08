@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Autopilot Dashboard</title>
+	<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+	<h1>Builds</h1>
+	<div id="builds" class="grid"></div>
+	<p id="empty" class="muted">No build in this workspace yet. Add one with ws add, and start it with ws start.</p>
+</main>
+<script src="/dexc.js"></script>
+<script>
+	"use strict";
+	const { element } = Dexc;
+	const cards = {};
+
+	function render(build) {
+		const status = build.status || {};
+		const state = !build.running ? element("span", { class: "badge stopped" }, "stopped")
+			: build.error ? element("span", { class: "badge danger" }, "no answer")
+			: element("span", { class: "badge" }, "running");
+		const decisions = (status.decisions || []).length;
+		return element("div", { class: "card" },
+			element("div", { class: "row" },
+				element("h2", {}, build.name), state,
+				decisions ? element("span", { class: "badge danger" }, decisions + " waiting") : null),
+			build.error ? element("div", { class: "failure" }, build.error) : null,
+			build.running && !build.error ? element("div", {},
+				element("div", { class: "row" },
+					element("span", { class: "muted" }, "machine"), element("strong", {}, status.active || "none"),
+					element("span", { class: "muted" }, "state"), element("strong", {}, status.activeState || "-"),
+					element("span", { class: "muted" }, "steps"), String(status.steps ?? 0)),
+				element("div", {}, element("a", { href: "/machines.html?build=" + encodeURIComponent(build.name) }, "machines")),
+				status.failure ? element("div", { class: "failure" }, status.failure) : null,
+				element("pre", { class: "log" }, (status.log || []).slice().reverse().join("\n"))) : null);
+	}
+
+	function show(build) {
+		const card = render(build);
+		const container = document.getElementById("builds");
+		if (cards[build.name]) cards[build.name].replaceWith(card);
+		else container.append(card);
+		cards[build.name] = card;
+		document.getElementById("empty").hidden = true;
+	}
+
+	Dexc.nav();
+	Dexc.on("build", show);
+</script>
+</body>
+</html>

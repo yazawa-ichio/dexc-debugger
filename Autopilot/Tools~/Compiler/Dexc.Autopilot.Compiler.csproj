@@ -16,4 +16,8 @@
     <Reference Include="Mono.Cecil"><HintPath>$(RepositoryRoot)Library\PackageCache\com.unity.nuget.mono-cecil@ecb9724e46ff\Mono.Cecil.dll</HintPath></Reference>
     <Compile Include="..\Guard\Analyzer\PipelineVmAnalyzer.cs" Link="PipelineVmAnalyzer.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Dexc.Autopilot.Dashboard" />
+    <InternalsVisibleTo Include="Dexc.Autopilot.Dashboard.Tests" />
+  </ItemGroup>
 </Project>

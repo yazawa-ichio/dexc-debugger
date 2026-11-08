@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Autopilot Machines</title>
+	<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+	<div class="row">
+		<h1>Machines</h1>
+		<select id="build"></select>
+		<span class="muted">Filled: the running state. Outlined: where an interrupted machine goes on.</span>
+	</div>
+	<div id="machines"></div>
+</main>
+<script src="/dexc.js"></script>
+<script>
+	"use strict";
+	const { element } = Dexc;
+	const svg = "http://www.w3.org/2000/svg";
+	const graphs = {};
+	const statuses = {};
+	const picker = document.getElementById("build");
+	let chosen = new URLSearchParams(location.search).get("build");
+
+	function shape(tag, attributes, ...children) {
+		const node = document.createElementNS(svg, tag);
+		for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+		for (const child of children) node.append(child);
+		return node;
+	}
+
+	// Columns by the shortest way from the first state; states nothing leads to go in a last column.
+	function layout(machine) {
+		const depth = {};
+		const queue = machine.first ? [machine.first] : [];
+		if (machine.first) depth[machine.first] = 0;
+		const byName = Object.fromEntries(machine.states.map(state => [state.name, state]));
+		while (queue.length) {
+			const name = queue.shift();
+			for (const next of (byName[name] || { goto: [] }).goto) {
+				if (depth[next] === undefined) {
+					depth[next] = depth[name] + 1;
+					queue.push(next);
+				}
+			}
+		}
+		const last = Math.max(0, ...Object.values(depth)) + 1;
+		const columns = [];
+		for (const state of machine.states) {
+			const column = depth[state.name] ?? last;
+			(columns[column] = columns[column] || []).push(state.name);
+		}
+		const positions = {};
+		const width = 140, height = 34, gapX = 70, gapY = 22;
+		columns.forEach((names, column) => (names || []).forEach((name, row) => {
+			positions[name] = { x: 10 + column * (width + gapX), y: 10 + row * (height + gapY), width, height };
+		}));
+		const rows = Math.max(1, ...columns.map(names => (names || []).length));
+		return { positions, width: 20 + columns.length * (width + gapX) - gapX, height: 30 + rows * (height + gapY) };
+	}
+
+	function draw(machine, running) {
+		const { positions, width, height } = layout(machine);
+		const id = "arrow-" + machine.name.replace(/[^A-Za-z0-9]/g, "_");
+		const picture = shape("svg", { viewBox: "0 0 " + width + " " + height, width, height },
+			shape("defs", {}, shape("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" },
+				shape("path", { d: "M0,0 L10,5 L0,10 z" }))));
+		for (const state of machine.states) {
+			const from = positions[state.name];
+			for (const target of state.goto) {
+				const to = positions[target];
+				if (!to || target === state.name) continue;
+				const x1 = from.x + from.width, y1 = from.y + from.height / 2;
+				const x2 = to.x, y2 = to.y + to.height / 2;
+				const d = x2 > x1
+					? "M" + x1 + "," + y1 + " C" + (x1 + 30) + "," + y1 + " " + (x2 - 30) + "," + y2 + " " + x2 + "," + y2
+					: "M" + (from.x + from.width / 2) + "," + (from.y + from.height) + " C" + (from.x + from.width / 2) + "," + (height - 4) + " " + (to.x + to.width / 2) + "," + (height - 4) + " " + (to.x + to.width / 2) + "," + (to.y + to.height);
+				picture.append(shape("path", { class: "edge", d, "marker-end": "url(#" + id + ")" }));
+			}
+		}
+		for (const state of machine.states) {
+			const box = positions[state.name];
+			const kind = state.name === machine.current ? (running ? " current" : " resume") : "";
+			picture.append(shape("g", { class: "state" + kind },
+				shape("rect", { x: box.x, y: box.y, width: box.width, height: box.height, rx: 6 }),
+				shape("text", { x: box.x + box.width / 2, y: box.y + box.height / 2 + 4, "text-anchor": "middle" }, state.name)));
+		}
+		return picture;
+	}
+
+	function render() {
+		const container = document.getElementById("machines");
+		container.replaceChildren();
+		const graph = graphs[chosen];
+		if (!graph) {
+			container.append(element("p", { class: "muted" }, "No bot is loaded in this build, or it is stopped."));
+			return;
+		}
+		if (graph.ok === false) {
+			container.append(element("div", { class: "failure" }, graph.error));
+			return;
+		}
+		const status = statuses[chosen] || {};
+		for (const machine of graph.machines) {
+			const running = machine.name === status.active;
+			const notes = [machine.when ? "when" : "never selected", machine.dwell ? "dwell " + machine.dwell + "s" : null, machine.restartOnEnter ? "restarts on enter" : null].filter(Boolean).join(", ");
+			container.append(element("div", { class: "card machine" },
+				element("div", { class: "row" },
+					element("h2", {}, machine.name),
+					running ? element("span", { class: "badge" }, "running") : null,
+					element("span", { class: "muted" }, notes)),
+				draw(machine, running)));
+		}
+	}
+
+	function choices(name) {
+		if ([...picker.options].some(option => option.value === name)) return;
+		picker.append(element("option", { value: name }, name));
+		if (!chosen) chosen = name;
+		picker.value = chosen;
+	}
+
+	picker.addEventListener("change", () => {
+		chosen = picker.value;
+		history.replaceState(null, "", "?build=" + encodeURIComponent(chosen));
+		render();
+	});
+
+	Dexc.nav();
+	Dexc.on("graph", ({ name, graph }) => {
+		graphs[name] = graph;
+		choices(name);
+		if (name === chosen) render();
+	});
+	Dexc.on("build", build => {
+		choices(build.name);
+		const before = statuses[build.name] || {};
+		const now = build.status || {};
+		statuses[build.name] = now;
+		if (!build.running) delete graphs[build.name];
+		if (build.name === chosen && (before.active !== now.active || before.activeState !== now.activeState || !build.running)) {
+			// The machines keep their current state in the graph only as of the load; the status says where they are now.
+			const graph = graphs[build.name];
+			if (graph && graph.machines) {
+				for (const machine of graph.machines) if (machine.name === now.active) machine.current = now.activeState;
+			}
+			render();
+		}
+	});
+</script>
+</body>
+</html>
