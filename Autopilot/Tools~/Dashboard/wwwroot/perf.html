@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Autopilot Performance</title>
+	<link rel="stylesheet" href="/style.css">
+	<style>
+		.chart canvas { width: 100%; height: 220px; display: block; }
+		.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+		.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+		#metrics { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 16px; font-size: 13px; }
+	</style>
+</head>
+<body>
+<main>
+	<h1>Performance</h1>
+	<p class="muted">What the Players send over OTLP: start them with <code>ws telemetry start --upload</code>. A histogram is drawn as its mean per export, with its max dotted.</p>
+	<div id="metrics"></div>
+	<div id="charts" class="grid"></div>
+</main>
+<script src="/dexc.js"></script>
+<script>
+	"use strict";
+	const { element } = Dexc;
+	const colors = ["#2f6fdb", "#d9822b", "#2e9e6b", "#b44fc9", "#d14b4b", "#3a9fb3", "#8a8f2b", "#c46a9b"];
+	const defaults = ["unity.frame.time", "unity.memory.used"];
+	const series = {};    // metric -> build -> points
+	const units = {};
+	const chosen = new Set();
+	let builds = [];
+	let scheduled = false;
+
+	function key(metric, build) { return metric + "\u0000" + build; }
+
+	async function load() {
+		builds = await Dexc.get("/api/perf/builds");
+		const names = new Set();
+		for (const build of builds) {
+			for (const metric of await Dexc.get("/api/perf/metrics?build=" + encodeURIComponent(build))) {
+				names.add(metric.name);
+				units[metric.name] = metric.unit;
+			}
+		}
+		if (chosen.size === 0) for (const name of defaults) if (names.has(name)) chosen.add(name);
+		const list = document.getElementById("metrics");
+		list.replaceChildren(...[...names].sort().map(name => element("label", {},
+			element("input", { type: "checkbox", checked: chosen.has(name), onchange: event => { event.target.checked ? chosen.add(name) : chosen.delete(name); update(); } }),
+			" " + name)));
+		await update();
+	}
+
+	async function update() {
+		for (const metric of chosen) {
+			series[metric] = series[metric] || {};
+			for (const build of builds) {
+				const points = series[metric][build] || [];
+				const since = points.length ? points[points.length - 1].time : 0;
+				const more = await Dexc.get("/api/perf/points?build=" + encodeURIComponent(build) + "&name=" + encodeURIComponent(metric) + "&since=" + since);
+				series[metric][build] = points.concat(more).slice(-2000);
+			}
+		}
+		draw();
+	}
+
+	function draw() {
+		const charts = document.getElementById("charts");
+		charts.replaceChildren();
+		for (const metric of [...chosen].sort()) {
+			const canvas = element("canvas");
+			const legend = element("div", { class: "legend" }, builds.map((build, index) => element("span", {}, element("i", { style: "background:" + colors[index % colors.length] }), build)));
+			charts.append(element("div", { class: "card chart" }, element("h2", {}, metric + (units[metric] ? " (" + units[metric] + ")" : "")), canvas, legend));
+			plot(canvas, metric);
+		}
+	}
+
+	function plot(canvas, metric) {
+		const ratio = window.devicePixelRatio || 1;
+		const width = canvas.clientWidth, height = canvas.clientHeight;
+		canvas.width = width * ratio;
+		canvas.height = height * ratio;
+		const context = canvas.getContext("2d");
+		context.scale(ratio, ratio);
+		const style = getComputedStyle(document.body);
+		const lines = builds.map((build, index) => ({ color: colors[index % colors.length], points: (series[metric] || {})[build] || [] }));
+		const all = lines.flatMap(line => line.points);
+		const values = all.flatMap(point => [point.value, point.max]).filter(value => typeof value === "number");
+		if (!values.length) {
+			context.fillStyle = style.getPropertyValue("--muted");
+			context.fillText("No points yet", 12, 20);
+			return;
+		}
+		const left = 56, right = 8, top = 8, bottom = 20;
+		const minimumTime = Math.min(...all.map(point => point.time)), maximumTime = Math.max(...all.map(point => point.time));
+		let low = Math.min(...values), high = Math.max(...values);
+		if (high === low) { high += 1; low -= 1; }
+		const x = time => left + (maximumTime === minimumTime ? 0.5 : (time - minimumTime) / (maximumTime - minimumTime)) * (width - left - right);
+		const y = value => top + (1 - (value - low) / (high - low)) * (height - top - bottom);
+		context.strokeStyle = style.getPropertyValue("--border");
+		context.fillStyle = style.getPropertyValue("--muted");
+		context.font = "11px system-ui";
+		for (let step = 0; step <= 4; step++) {
+			const value = low + (high - low) * step / 4;
+			context.beginPath();
+			context.moveTo(left, y(value));
+			context.lineTo(width - right, y(value));
+			context.stroke();
+			context.fillText(format(value), 4, y(value) + 4);
+		}
+		context.fillText(new Date(minimumTime).toLocaleTimeString(), left, height - 4);
+		const end = new Date(maximumTime).toLocaleTimeString();
+		context.fillText(end, width - right - context.measureText(end).width, height - 4);
+		for (const line of lines) {
+			for (const [field, dash] of [["value", []], ["max", [3, 3]]]) {
+				const drawn = line.points.filter(point => typeof point[field] === "number");
+				if (!drawn.length) continue;
+				context.setLineDash(dash);
+				context.strokeStyle = line.color;
+				context.lineWidth = 1.5;
+				context.beginPath();
+				drawn.forEach((point, index) => index ? context.lineTo(x(point.time), y(point[field])) : context.moveTo(x(point.time), y(point[field])));
+				context.stroke();
+			}
+		}
+		context.setLineDash([]);
+	}
+
+	function format(value) {
+		const size = Math.abs(value);
+		if (size >= 1e9) return (value / 1e9).toFixed(1) + "G";
+		if (size >= 1e6) return (value / 1e6).toFixed(1) + "M";
+		if (size >= 1e3) return (value / 1e3).toFixed(1) + "k";
+		return value.toFixed(size < 10 ? 2 : 0);
+	}
+
+	Dexc.nav();
+	Dexc.on("perf", () => {
+		if (scheduled) return;
+		scheduled = true;
+		setTimeout(() => { scheduled = false; load(); }, 2000);
+	});
+	window.addEventListener("resize", draw);
+	load();
+</script>
+</body>
+</html>

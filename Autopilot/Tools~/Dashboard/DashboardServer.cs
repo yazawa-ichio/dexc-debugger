@@ -16,19 +16,26 @@ namespace Dexc.Autopilot.Dashboard
 	/// <summary>
 	/// The HTTP side: the API over the hub, the pages that come with the dashboard, and the project's own pages in
 	/// Dashboard/ of the workspace. Loopback only. A request whose Host is not this machine is refused, so a web page
-	/// cannot reach it by renaming itself, and every request that changes something needs the token of this run.
+	/// cannot reach it by renaming itself, and every request that changes something needs the token of this run. The one
+	/// exception is OTLP at /v1/: a Player keeps sending across a restart of the dashboard, whose token is new, and what a
+	/// stranger could send there is numbers, not instructions.
 	/// </summary>
 	internal sealed class DashboardServer : IAsyncDisposable
 	{
 		public const string TokenHeader = "X-Dexc-Token";
 		public const string ProjectFolder = "Dashboard";
 
-		private readonly WebApplication m_App;
+		private static readonly System.Net.Http.HttpClient s_Forward = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
-		public DashboardServer(Hub hub, int port, string token, string pages)
+		private readonly WebApplication m_App;
+		private readonly string m_Forward;
+
+		/// <param name="forward">An OTLP/HTTP endpoint that gets what the Players send, as it came, or null.</param>
+		public DashboardServer(Hub hub, int port, string token, string pages, string forward = null)
 		{
 			Hub = hub;
 			Token = token;
+			m_Forward = forward?.TrimEnd('/');
 			var builder = WebApplication.CreateSlimBuilder();
 			builder.Logging.ClearProviders();
 			builder.WebHost.UseKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, port));
@@ -66,7 +73,8 @@ namespace Dexc.Autopilot.Dashboard
 			}
 
 			var reads = HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method);
-			if (!reads && context.Request.Headers[TokenHeader] != Token)
+			var otlp = context.Request.Path.StartsWithSegments("/v1");
+			if (!reads && !otlp && context.Request.Headers[TokenHeader] != Token)
 			{
 				context.Response.StatusCode = StatusCodes.Status403Forbidden;
 				return Task.CompletedTask;
@@ -90,6 +98,12 @@ namespace Dexc.Autopilot.Dashboard
 				return Json(new JsonArray(pages.Select(name => (JsonNode)name).ToArray()));
 			});
 			app.MapGet("/api/events", Events);
+			app.MapPost("/v1/{signal}", Otlp);
+			app.MapGet("/api/perf/builds", () => Json(new JsonArray(Hub.Perf.Builds().Select(name => (JsonNode)name).ToArray())));
+			app.MapGet("/api/perf/metrics", (string build) => Json(Hub.Perf.Metrics(build ?? string.Empty)));
+			app.MapGet("/api/perf/points", (string build, string name, double? since) => Json(Hub.Perf.Points(build ?? string.Empty, name ?? string.Empty, since ?? 0)));
+			app.MapGet("/api/perf/spans", (string build) => Json(Hub.Perf.Spans(build ?? string.Empty)));
+			app.MapGet("/api/perf/logs", (string build) => Json(Hub.Perf.Logs(build ?? string.Empty)));
 			app.MapGet("/api/decisions", () => Json(Hub.Relay.Decisions()));
 			app.MapGet("/api/journal", () => Json(Hub.Relay.Journal()));
 			app.MapPost("/api/decisions/answer", async (HttpContext context) =>
@@ -136,6 +150,70 @@ namespace Dexc.Autopilot.Dashboard
 					return Results.NoContent();
 				}
 			});
+		}
+
+		/// <summary>OTLP/HTTP in protobuf, gzip or not, as the Push of Dexc Telemetry and the send of its CLI make it.</summary>
+		private async Task<IResult> Otlp(HttpContext context, string signal)
+		{
+			using var buffer = new MemoryStream();
+			await context.Request.Body.CopyToAsync(buffer);
+			var raw = buffer.ToArray();
+			var gzip = string.Equals(context.Request.Headers.ContentEncoding, "gzip", StringComparison.OrdinalIgnoreCase);
+			System.Collections.Generic.IReadOnlyList<string> builds;
+			try
+			{
+				var body = gzip ? Gunzip(raw) : raw;
+				switch (signal)
+				{
+					case "metrics":
+						builds = Hub.Perf.Add(OpenTelemetry.Proto.Collector.Metrics.V1.ExportMetricsServiceRequest.Parser.ParseFrom(body));
+						break;
+					case "traces":
+						builds = Hub.Perf.Add(OpenTelemetry.Proto.Collector.Trace.V1.ExportTraceServiceRequest.Parser.ParseFrom(body));
+						break;
+					case "logs":
+						builds = Hub.Perf.Add(OpenTelemetry.Proto.Collector.Logs.V1.ExportLogsServiceRequest.Parser.ParseFrom(body));
+						break;
+					default:
+						return Results.NotFound();
+				}
+			}
+			catch (Exception exception) when (exception is Google.Protobuf.InvalidProtocolBufferException || exception is InvalidDataException)
+			{
+				return Results.BadRequest(exception.Message);
+			}
+
+			if (m_Forward != null)
+				_ = Forward(signal, raw, gzip);
+			Hub.Publish("perf", new JsonObject { ["signal"] = signal, ["builds"] = new JsonArray(builds.Select(name => (JsonNode)name).ToArray()) });
+			// An empty Export*ServiceResponse: everything was taken.
+			return Results.Bytes(Array.Empty<byte>(), "application/x-protobuf");
+		}
+
+		private static byte[] Gunzip(byte[] data)
+		{
+			using var input = new System.IO.Compression.GZipStream(new MemoryStream(data), System.IO.Compression.CompressionMode.Decompress);
+			using var output = new MemoryStream();
+			input.CopyTo(output);
+			return output.ToArray();
+		}
+
+		private async Task Forward(string signal, byte[] raw, bool gzip)
+		{
+			try
+			{
+				var content = new System.Net.Http.ByteArrayContent(raw);
+				content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-protobuf");
+				if (gzip)
+					content.Headers.ContentEncoding.Add("gzip");
+				using var response = await s_Forward.PostAsync(m_Forward + "/v1/" + signal, content);
+				if (!response.IsSuccessStatusCode)
+					Console.Error.WriteLine("Forward to " + m_Forward + ": " + (int)response.StatusCode);
+			}
+			catch (Exception exception) when (exception is System.Net.Http.HttpRequestException || exception is TaskCanceledException)
+			{
+				Console.Error.WriteLine("Forward to " + m_Forward + ": " + exception.Message);
+			}
 		}
 
 		/// <summary>Under the two minutes a shell command of an agent may take by default.</summary>

@@ -46,6 +46,9 @@ namespace Dexc.Autopilot.Dashboard
 
 		public Relay Relay { get; }
 
+		/// <summary>What the Players sent over OTLP.</summary>
+		public Perf Perf { get; } = new Perf();
+
 		public string Directory => m_Directory;
 
 		public Workspace Workspace() => Compiler.Workspace.Open(m_Directory);

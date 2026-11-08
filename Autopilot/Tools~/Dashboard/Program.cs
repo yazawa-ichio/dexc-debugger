@@ -13,11 +13,12 @@ namespace Dexc.Autopilot.Dashboard
 	/// <summary>
 	/// The dashboard of a workspace: the builds that ws start started, their machines, and the pages of the project.
 	///
-	///   Dexc.Autopilot.Dashboard [--port 7892] [--interval 1] [--human-timeout 60]
+	///   Dexc.Autopilot.Dashboard [--port 7892] [--interval 1] [--human-timeout 60] [--forward http://127.0.0.1:4318]
 	///
 	/// The workspace is DEXC_WORKSPACE, or the first one from here upwards. It writes where it listens and its token to
 	/// .state/.dashboard/endpoint.json, for ws agent, and prints the address to open. A question of a bot goes to the
-	/// agent when nobody answered it in --human-timeout seconds.
+	/// agent when nobody answered it in --human-timeout seconds. It takes OTLP/HTTP at /v1/, and --forward sends what came
+	/// on as it came, to a collector or a backend such as grafana/otel-lgtm.
 	/// </summary>
 	internal static class Program
 	{
@@ -34,7 +35,8 @@ namespace Dexc.Autopilot.Dashboard
 				var workspace = Workspace.Find();
 				var hub = new Hub(workspace.Directory, humanTimeout);
 				var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-				await using var server = new DashboardServer(hub, port, token, Path.Combine(AppContext.BaseDirectory, "wwwroot"));
+				var forward = Option(arguments, "forward", null);
+				await using var server = new DashboardServer(hub, port, token, Path.Combine(AppContext.BaseDirectory, "wwwroot"), forward);
 				await server.Start();
 				var endpoint = workspace.DashboardEndpoint;
 				Directory.CreateDirectory(Path.GetDirectoryName(endpoint));

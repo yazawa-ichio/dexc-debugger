@@ -401,7 +401,7 @@ namespace Dexc.Autopilot.Compiler
 	///   ws add name player [--dlls a,b] [--csproj file] [--editor dir] [--commit sha]
 	///   ws remove name
 	///   ws refs | start [--headless] [--seed n] | stop | status | watch      [--build a,b]
-	///   ws telemetry start [--watch a,b] | capture frames [--profiler] | pull | stop   [--build a,b]
+	///   ws telemetry start [--watch a,b] [--upload] | capture frames [--profiler] | pull | stop   [--build a,b]
 	///   ws bot [--load] [--vm ...]                                 [--build a,b]
 	///   ws eval "snippet" [--vm ...] [--keep]                      [--build a,b]
 	///   ws agent wait [--timeout 90] | answer build id answer | say text
@@ -472,6 +472,9 @@ namespace Dexc.Autopilot.Compiler
 				return 1;
 			}
 		}
+
+		/// <summary>Seconds between the metrics a Player writes and sends with ws telemetry start --upload.</summary>
+		private const int UploadSeconds = 5;
 
 		/// <summary>Exit code of ws agent wait when nothing came in time.</summary>
 		public const int NothingCame = 3;
@@ -667,7 +670,19 @@ namespace Dexc.Autopilot.Compiler
 			{
 				case "start":
 					var watch = string.Concat(List(options, "watch").Select(pattern => Api + ".Watch(\"" + pattern.Replace("\"", string.Empty) + "\");"));
-					return ForEach(Running(players), player => Eval(workspace, player, "if (!" + Api + ".IsRunning) " + Api + ".Start(); " + watch + " return " + Api + ".IsRunning;", options, compilerPort));
+					var start = "if (!" + Api + ".IsRunning) " + Api + ".Start(); ";
+					var upload = string.Empty;
+					if (options.Has("upload"))
+					{
+						// To the dashboard, every few seconds, for it to draw as the Players go.
+						if (!File.Exists(workspace.DashboardEndpoint))
+							throw new InvalidOperationException("--upload sends to the dashboard, which is not running.");
+						var url = JsonNode.Parse(File.ReadAllText(workspace.DashboardEndpoint))["url"].GetValue<string>().Replace("\"", string.Empty);
+						start = "if (!" + Api + ".IsRunning) " + Api + ".Start(new Dexc.Telemetry.TelemetryOptions { ExportIntervalSeconds = " + UploadSeconds + " }); ";
+						upload = "if (!" + Api + ".IsUploading) " + Api + ".StartUpload(new Dexc.Telemetry.TelemetryUploadOptions { Endpoint = \"" + url + "\", IntervalSeconds = " + UploadSeconds + " }); ";
+					}
+
+					return ForEach(Running(players), player => Eval(workspace, player, start + watch + upload + "return " + Api + ".IsRunning;", options, compilerPort));
 				case "capture":
 					if (arguments.Length < 4 || !int.TryParse(arguments[3], out var frames) || frames <= 0)
 						throw new InvalidOperationException("ws telemetry capture <frames>");

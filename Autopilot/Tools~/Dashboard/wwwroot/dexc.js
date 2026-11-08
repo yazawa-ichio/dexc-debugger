@@ -64,7 +64,8 @@
 	async function nav() {
 		const bar = element("nav", { class: "dexc-nav" },
 			element("a", { href: "/" }, "Builds"),
-			element("a", { href: "/machines.html" }, "Machines"));
+			element("a", { href: "/machines.html" }, "Machines"),
+			element("a", { href: "/perf.html" }, "Performance"));
 		document.body.prepend(bar);
 		for (const link of bar.querySelectorAll("a")) {
 			if (new URL(link.href).pathname === location.pathname) link.classList.add("current");
