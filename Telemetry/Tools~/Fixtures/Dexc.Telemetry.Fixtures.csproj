@@ -12,7 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- The files that need UnityEngine stay out; UnityStandIns.cs takes the place of the few types the rest uses. -->
-    <Compile Include="../../Runtime/*.cs" Exclude="../../Runtime/DexcTelemetry.cs;../../Runtime/TelemetryDriver.cs;../../Runtime/TelemetryRoot.cs;../../Runtime/TelemetrySources.cs;../../Runtime/UnityLogAdapter.cs;../../Runtime/AssemblyInfo.cs;../../Runtime/TelemetryCapture.cs;../../Runtime/TelemetryPlayerLoop.cs" />
+    <Compile Include="../../Runtime/*.cs" Exclude="../../Runtime/DexcTelemetry.cs;../../Runtime/TelemetryDriver.cs;../../Runtime/TelemetryRoot.cs;../../Runtime/TelemetrySources.cs;../../Runtime/UnityLogAdapter.cs;../../Runtime/AssemblyInfo.cs;../../Runtime/TelemetryCapture.cs;../../Runtime/TelemetryPlayerLoop.cs;../../Runtime/TelemetryUploader.cs" />
     <Compile Include="*.cs" />
   </ItemGroup>
 </Project>
