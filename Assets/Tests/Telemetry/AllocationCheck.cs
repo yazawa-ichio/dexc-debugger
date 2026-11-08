@@ -5,7 +5,8 @@ namespace DexcDebugger.Tests.Telemetry
 {
 	/// <summary>
 	/// Checks for allocation by majority. One reading is not enough: the constraint of Unity reports an allocation for about
-	/// one run in a hundred even for an empty action. Code that allocates shows it in every run.
+	/// one run in a hundred even for an empty action. Code that allocates shows it in every run. A first run is made
+	/// uncounted, so that compiling on first use does not count.
 	/// </summary>
 	internal static class AllocationCheck
 	{
@@ -14,6 +15,8 @@ namespace DexcDebugger.Tests.Telemetry
 		internal static int AllocatingRuns(TestDelegate action)
 		{
 			var constraint = new AllocatingGCMemoryConstraint();
+			// Not counted: the first run may JIT the action or the constraint itself.
+			constraint.ApplyTo(action);
 			var allocating = 0;
 			for (var i = 0; i < Runs; i++)
 			{
