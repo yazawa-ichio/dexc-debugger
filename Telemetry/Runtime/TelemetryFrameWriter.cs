@@ -6,11 +6,12 @@ namespace Dexc.Telemetry
 	/// <summary>
 	/// Appends messages to a stream as frames: a four byte big-endian length, then the message. This is the framing of the
 	/// OpenTelemetry Collector file exporter's proto format. A frame carries no signal type, so one stream holds one signal.
-	/// A reader that finds a frame cut short by a crash drops it and keeps the frames before it. Main thread only.
+	/// A reader that finds a frame cut short by a crash drops it and keeps the frames before it. This one writes the stream
+	/// on the calling thread, for streams in memory; the files go through <see cref="TelemetryFileFrames"/>. Main thread only.
 	/// </summary>
 	internal class TelemetryFrameWriter : IDisposable
 	{
-		const int HeaderSize = 4;
+		internal const int HeaderSize = 4;
 
 		readonly byte[] m_Header = new byte[HeaderSize];
 
@@ -26,7 +27,7 @@ namespace Dexc.Telemetry
 
 		private protected Stream Stream { get; set; }
 
-		internal void WriteFrame(byte[] message, int count)
+		internal virtual void WriteFrame(byte[] message, int count)
 		{
 			m_Header[0] = (byte)(count >> 24);
 			m_Header[1] = (byte)(count >> 16);
@@ -37,13 +38,21 @@ namespace Dexc.Telemetry
 			AfterFrame();
 		}
 
-		internal void Flush()
+		internal virtual void Flush()
 		{
 			Stream.Flush();
 		}
 
 		private protected virtual void AfterFrame()
 		{
+		}
+
+		internal static void WriteHeader(byte[] buffer, int count)
+		{
+			buffer[0] = (byte)(count >> 24);
+			buffer[1] = (byte)(count >> 16);
+			buffer[2] = (byte)(count >> 8);
+			buffer[3] = (byte)count;
 		}
 
 		/// <summary>Ends the file and goes on in the next one. Without files it does nothing.</summary>

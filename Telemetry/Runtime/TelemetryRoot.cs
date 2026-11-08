@@ -29,6 +29,7 @@ namespace Dexc.Telemetry
 		TelemetryFrameWriter m_TraceFrames;
 		readonly List<ITelemetryLogAdapter> m_Adapters = new List<ITelemetryLogAdapter>();
 		readonly TelemetryCapture m_Capture;
+		readonly TelemetryCounter m_DroppedFrames;
 		TelemetryDriver m_Driver;
 		TelemetrySources m_Sources;
 		TelemetryFileSet m_Files;
@@ -52,6 +53,7 @@ namespace Dexc.Telemetry
 			Logs = new TelemetryLogs(Metrics, Traces);
 			m_Capture = new TelemetryCapture(Metrics, Traces);
 			Methods = new TelemetryMethods(Metrics, Traces, m_Capture);
+			m_DroppedFrames = Metrics.Counter("dexc.telemetry.frames.dropped", "{frame}");
 		}
 
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -152,7 +154,7 @@ namespace Dexc.Telemetry
 		{
 			m_Sources?.OnFrame(deltaSeconds);
 			Methods.OnFrame();
-			if (!IsRunning)
+			if (!IsRunning || HasWriteFailed())
 			{
 				return;
 			}
@@ -218,6 +220,10 @@ namespace Dexc.Telemetry
 			{
 				return;
 			}
+			if (HasWriteFailed())
+			{
+				return;
+			}
 			try
 			{
 				var started = TelemetrySources.Timestamp();
@@ -225,6 +231,7 @@ namespace Dexc.Telemetry
 				Logs.Flush(m_LogFrames);
 				Methods.Drain();
 				Traces.Flush();
+				m_DroppedFrames.Add(m_Files?.Writing.TakeDropped() ?? 0, TelemetryDetail.Basic);
 				ExportMetrics(started);
 			}
 			catch (IOException exception)
@@ -267,6 +274,7 @@ namespace Dexc.Telemetry
 			{
 				Fail(exception);
 			}
+			WaitWritten();
 		}
 
 		/// <summary>Writes everything and has it reach the disk: the application may not come back.</summary>
@@ -287,6 +295,34 @@ namespace Dexc.Telemetry
 			{
 				Fail(exception);
 			}
+			WaitWritten();
+		}
+
+		/// <summary>
+		/// Waits for the writing thread to finish what was asked. Only the calls that promise their data is in the files
+		/// wait: an explicit flush, a seal, a stop, a pause. The periodic writes never do.
+		/// </summary>
+		internal void WaitWritten()
+		{
+			if (m_Files != null && !m_Files.Writing.Wait(TimeSpan.FromSeconds(WaitSeconds)))
+			{
+				Debug.LogWarning("Dexc Telemetry: the files were not written within " + WaitSeconds + " seconds.");
+			}
+			HasWriteFailed();
+		}
+
+		const int WaitSeconds = 5;
+
+		/// <summary>Ends the output when the writing thread failed. True when it did.</summary>
+		bool HasWriteFailed()
+		{
+			var error = m_Files?.Writing.TakeError();
+			if (error == null)
+			{
+				return false;
+			}
+			Fail(error as IOException ?? new IOException(error.Message, error));
+			return true;
 		}
 
 		/// <summary>The folder of the files: of the run, or of the last one. Null before the first run with files.</summary>
@@ -337,6 +373,8 @@ namespace Dexc.Telemetry
 			m_Sources?.Dispose();
 			m_Sources = null;
 			m_Capture.End();
+			// What the frames queued, their closing included, is written before the thread ends.
+			m_Files?.Writing.Stop(TimeSpan.FromSeconds(WaitSeconds));
 			m_Files = null;
 			if (m_IsInPlayerLoop)
 			{

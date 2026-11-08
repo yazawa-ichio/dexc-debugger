@@ -9,8 +9,9 @@ namespace Dexc.Telemetry
 	/// <summary>
 	/// The files of one run in the telemetry folder. A file being written ends with <c>.otlp.open</c> and is renamed to
 	/// <c>.otlp</c> when it closes, so that whoever takes files only takes whole ones. It keeps the folder under its limit
-	/// by deleting the oldest closed files, of this run or earlier ones: what led up to a problem is at the end. Main
-	/// thread only.
+	/// by deleting the oldest closed files, of this run or earlier ones: what led up to a problem is at the end. Files are
+	/// made, closed and renamed on the writing thread of <see cref="Writing"/>, and the set of open ones is shared under a
+	/// lock.
 	/// </summary>
 	internal sealed class TelemetryFileSet
 	{
@@ -25,8 +26,9 @@ namespace Dexc.Telemetry
 		readonly long m_MaximumDirectoryBytes;
 		readonly HashSet<string> m_Open = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-		internal TelemetryFileSet(string directory, string run, long maximumFileBytes, long maximumDirectoryBytes)
+		internal TelemetryFileSet(string directory, string run, long maximumFileBytes, long maximumDirectoryBytes, long maximumPendingBytes = 4L * 1024 * 1024)
 		{
+			Writing = new TelemetryFileWriting(maximumPendingBytes);
 			m_Directory = directory;
 			m_Run = run;
 			m_MaximumFileBytes = maximumFileBytes;
@@ -36,6 +38,9 @@ namespace Dexc.Telemetry
 		}
 
 		internal string Folder => m_Directory;
+
+		/// <summary>The thread the files of this set are written on.</summary>
+		internal TelemetryFileWriting Writing { get; }
 
 		internal long MaximumFileBytes => m_MaximumFileBytes;
 
@@ -51,7 +56,10 @@ namespace Dexc.Telemetry
 			var name = signal + "-" + m_Run + (part == 0 ? string.Empty : "-" + part) + OpenExtension;
 			path = Path.Combine(m_Directory, name);
 			var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read | FileShare.Delete);
-			m_Open.Add(path);
+			lock (m_Open)
+			{
+				m_Open.Add(path);
+			}
 			Trim();
 			return stream;
 		}
@@ -60,7 +68,10 @@ namespace Dexc.Telemetry
 		internal string ProfilerPath(int capture)
 		{
 			var path = Path.Combine(m_Directory, ProfilerPrefix + m_Run + "-" + capture + ProfilerExtension);
-			m_Open.Add(path);
+			lock (m_Open)
+			{
+				m_Open.Add(path);
+			}
 			return path;
 		}
 
@@ -68,13 +79,19 @@ namespace Dexc.Telemetry
 		/// <returns>The path the file has now.</returns>
 		internal string Closed(string path)
 		{
-			m_Open.Remove(path);
+			lock (m_Open)
+			{
+				m_Open.Remove(path);
+			}
 			return path.EndsWith(OpenExtension, StringComparison.OrdinalIgnoreCase) ? Rename(path) : path;
 		}
 
 		internal bool IsOpen(string path)
 		{
-			return m_Open.Contains(path);
+			lock (m_Open)
+			{
+				return m_Open.Contains(path);
+			}
 		}
 
 		/// <summary>
@@ -91,7 +108,7 @@ namespace Dexc.Telemetry
 				{
 					return;
 				}
-				if (m_Open.Contains(file.FullName) || file.Name.EndsWith(OpenExtension, StringComparison.OrdinalIgnoreCase))
+				if (IsOpen(file.FullName) || file.Name.EndsWith(OpenExtension, StringComparison.OrdinalIgnoreCase))
 				{
 					continue;
 				}

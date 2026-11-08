@@ -34,7 +34,7 @@ namespace Dexc.Telemetry
 			}
 			var directory = options.Directory ?? Path.Combine(Application.persistentDataPath, "Telemetry");
 			var run = Guid.NewGuid().ToString("N");
-			var files = new TelemetryFileSet(directory, run, options.MaximumFileBytes, options.MaximumDirectoryBytes);
+			var files = new TelemetryFileSet(directory, run, options.MaximumFileBytes, options.MaximumDirectoryBytes, options.MaximumPendingBytes);
 			var metrics = files.Open("metrics");
 			var logs = files.Open("logs");
 			var traces = files.Open("traces");
@@ -124,10 +124,12 @@ namespace Dexc.Telemetry
 			TelemetryRoot.Current.Stop();
 		}
 
-		/// <summary>Writes what is recorded now, without waiting for the interval.</summary>
+		/// <summary>Writes what is recorded now, without waiting for the interval, and waits until it is in the files.</summary>
 		public static void Flush()
 		{
-			TelemetryRoot.Current.Flush();
+			var root = TelemetryRoot.Current;
+			root.Flush();
+			root.WaitWritten();
 		}
 
 		/// <summary>

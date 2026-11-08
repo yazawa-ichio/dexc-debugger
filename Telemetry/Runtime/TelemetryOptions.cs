@@ -53,6 +53,12 @@ namespace Dexc.Telemetry
 		/// <summary>The size at which a file ends and the next one begins.</summary>
 		public long MaximumFileBytes = 8L * 1024 * 1024;
 
+		/// <summary>
+		/// The most bytes of frames that may wait for the writing thread. Beyond it a frame is dropped and counted in
+		/// <c>dexc.telemetry.frames.dropped</c>, so that a slow storage does not make the memory grow.
+		/// </summary>
+		public long MaximumPendingBytes = 4L * 1024 * 1024;
+
 		/// <summary>The limit of the folder. Above it the oldest files are deleted, of this run or earlier ones.</summary>
 		public long MaximumDirectoryBytes = 64L * 1024 * 1024;
 
