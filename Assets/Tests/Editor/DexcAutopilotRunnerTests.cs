@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Dexc.Autopilot;
 using NUnit.Framework;
 
@@ -178,6 +179,80 @@ namespace DexcDebugger.Tests.Editor
 
 			Assert.That((string)m_Runner.Status()["failure"], Does.Contain("broken"));
 			Assert.That(m_Runner.Tick(), Is.False);
+		}
+
+		[Test]
+		public void TheGraphShowsEachMachineItsStatesAndWhereTheyLead()
+		{
+			Load(builder =>
+			{
+				var quest = builder.Machine("Quest").When(_ => true).Dwell(2f);
+				quest.State("Walk").Goto("Talk", _ => false).Goto("Rest", _ => false);
+				quest.State("Talk");
+				quest.State("Rest");
+				builder.Machine("Idle").Step(_ => { });
+			});
+			m_Runner.Tick();
+
+			var graph = m_Runner.Graph();
+			var machines = (List<object>)graph["machines"];
+			var quest = (Dictionary<string, object>)machines[0];
+			var walk = (Dictionary<string, object>)((List<object>)quest["states"])[0];
+
+			Assert.That(graph["active"], Is.EqualTo("Quest"));
+			Assert.That(machines, Has.Count.EqualTo(2));
+			Assert.That(quest["first"], Is.EqualTo("Walk"));
+			Assert.That(quest["current"], Is.EqualTo("Walk"));
+			Assert.That(quest["dwell"], Is.EqualTo(2f));
+			Assert.That(walk["goto"], Is.EqualTo(new[] { "Talk", "Rest" }));
+			Assert.That(((Dictionary<string, object>)machines[1])["when"], Is.False);
+		}
+
+		[Test]
+		public void AQuestionWaitsInTheStatusUntilItIsAnswered()
+		{
+			AutopilotDecision decision = null;
+			Load(builder => builder.Machine("Quest").When(_ => true).State("Fork").Enter(context => decision = context.Ask("Which way?", "left", "right")));
+			m_Runner.Tick();
+
+			var waiting = (Dictionary<string, object>)((List<object>)m_Runner.Status()["decisions"]).Single();
+			Assert.That(waiting["question"], Is.EqualTo("Which way?"));
+			Assert.That(waiting["state"], Is.EqualTo("Fork"));
+			Assert.That(m_Runner.Answer(decision.Id, "up", "human")["ok"], Is.False, "only one of the choices");
+			Assert.That(decision.IsAnswered, Is.False);
+
+			Assert.That(m_Runner.Answer(decision.Id, "right", "agent")["ok"], Is.True);
+
+			Assert.That(decision.Answer, Is.EqualTo("right"));
+			Assert.That(decision.AnsweredBy, Is.EqualTo("agent"));
+			Assert.That((List<object>)m_Runner.Status()["decisions"], Is.Empty);
+			Assert.That(m_Runner.Answer(decision.Id, "left", "human")["ok"], Is.False, "answered once");
+		}
+
+		[Test]
+		public void AQuestionIsWithdrawnWhenItsStateExitsOrTheBotIsReloaded()
+		{
+			var leave = false;
+			var decisions = new List<AutopilotDecision>();
+			Action<AutopilotBuilder<AutopilotContext>> bot = builder =>
+			{
+				var quest = builder.Machine("Quest").When(_ => true);
+				quest.State("Fork").Enter(context => decisions.Add(context.Ask("Which way?"))).Goto("Walk", _ => leave);
+				quest.State("Walk").Enter(context => decisions.Add(context.Ask("How fast?")));
+			};
+			Load(bot);
+			m_Runner.Tick();
+			leave = true;
+			m_Runner.Tick();
+
+			Assert.That(decisions[0].IsWithdrawn, Is.True);
+			Assert.That(decisions[1].IsWithdrawn, Is.False);
+			Assert.That(m_Runner.Answer(decisions[0].Id, "left", "human")["ok"], Is.False);
+
+			Load(bot);
+
+			Assert.That(decisions[1].IsWithdrawn, Is.True);
+			Assert.That((List<object>)m_Runner.Status()["decisions"], Is.Empty);
 		}
 	}
 }

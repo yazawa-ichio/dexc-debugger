@@ -19,6 +19,22 @@ namespace Dexc.Autopilot
 
 		/// <summary>Seconds the running state has been running.</summary>
 		public float StateTime { get; internal set; }
+
+		internal Func<string, string[], AutopilotDecision> AskHandler { get; set; }
+
+		/// <summary>
+		/// Asks the people watching, and the agent when they do not answer in time. It returns at once: ask in
+		/// <c>Enter</c>, keep the decision on the <see cref="State"/> board, and look at it in <c>Step</c>. Asking in every
+		/// step asks again every step.
+		/// </summary>
+		/// <param name="choices">The answers to pick from. None lets any text through.</param>
+		/// <exception cref="InvalidOperationException">No runner runs this context.</exception>
+		public AutopilotDecision Ask(string question, params string[] choices)
+		{
+			if (AskHandler == null)
+				throw new InvalidOperationException("Only a bot run by an AutopilotRunner can ask.");
+			return AskHandler(question, choices);
+		}
 	}
 
 	public sealed class AutopilotState<TContext>

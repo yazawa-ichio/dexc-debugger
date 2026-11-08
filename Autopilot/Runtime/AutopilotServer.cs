@@ -94,12 +94,23 @@ namespace Dexc.Autopilot
 
 		public void Dispose() => m_Listener.Stop();
 
-		/// <summary>An operation is "status", or a verb and a VM: "load:ilruntime", "eval:pipeline", "eval-keep:ilruntime".</summary>
+		/// <summary>
+		/// An operation is "status", "graph", "answer:&lt;id&gt;:&lt;human|agent&gt;" with the answer as the payload, or a verb and
+		/// a VM: "load:ilruntime", "eval:pipeline", "eval-keep:ilruntime".
+		/// </summary>
 		private IDictionary<string, object> Run(Request request)
 		{
 			if (request.Operation == "status")
 				return m_Host.Status();
+			if (request.Operation == "graph")
+				return m_Host.Graph();
 			var parts = request.Operation.Split(':');
+			if (parts[0] == "answer")
+			{
+				if (parts.Length != 3 || (parts[2] != "human" && parts[2] != "agent") || request.Payload == null)
+					throw new ArgumentException("An answer is answer:<id>:<human|agent> with the answer: " + request.Operation);
+				return m_Host.Answer(parts[1], new UTF8Encoding(false).GetString(request.Payload), parts[2]);
+			}
 			if (parts.Length != 2 || m_Host.FindBackend(parts[1]) == null)
 				throw new ArgumentException("Unknown operation: " + request.Operation);
 			switch (parts[0])

@@ -61,6 +61,8 @@ BackendはRuntimeへ`IAutopilotBackend`と`IAutopilotModule`だけを見せる�
 | 操作 | 内容 |
 | --- | --- |
 | `status` | Botとゲームの状態を返す |
+| `graph` | 読み込んだBotのマシン、状態、遷移先を返す |
+| `answer:<id>:<human\|agent>` | 判断点に答える。答えはbase64で付ける |
 | `load:<vm>` | Botを読み込む |
 | `eval:<vm>` | スニペットを実行し、VMを破棄する |
 | `eval-keep:<vm>` | スニペットを実行し、VMを120秒残す |
@@ -70,7 +72,20 @@ BackendはRuntimeへ`IAutopilotBackend`と`IAutopilotModule`だけを見せる�
 
 ### status
 
-`loadCount`、`active`、`activeState`、`steps`、`switches`、`failure`、`missing`、`log`を返す。ゲーム固有の項目は`StatusRequested`で足す。`log`は直近40件とする。
+`loadCount`、`active`、`activeState`、`steps`、`switches`、`failure`、`missing`、`log`、`decisions`を返す。ゲーム固有の項目は`StatusRequested`で足す。`log`は直近40件とする。
+
+### graph
+
+マシンごとに`name`、`when`（条件の有無）、`dwell`、`restartOnEnter`、`first`、`current`、`states`を返す。`current`は、割り込まれたマシンが戻る状態でもある。状態は`name`と`goto`（遷移先の名前の並び、宣言順）を持つ。条件はdelegateなので、名前を持たず返さない。ほかに`loadCount`、`active`、`selectInterval`を返す。
+
+### 判断点
+
+- Botは`AutopilotContext.Ask(question, choices)`で、見ている人に聞く。返す`AutopilotDecision`は待たずに返り、Botは`IsAnswered`を`Step`で見る
+- 人が期限内に答えなければ、ワークスペースを操作しているエージェントが答える。期限と回し方はホストの道具が決める。Playerは答えた側（`human`か`agent`）を記録するだけである
+- 答えを待つ間と、待ちすぎたときの振る舞いはBotが`Elapsed`で決める。ライブラリは方針を持たない
+- 聞いた状態が`Exit`したとき、Botの読み直し、Botの失敗で取り下げる（`IsWithdrawn`）。`Enter`で聞いてStateのBlackboardに持つ形を前提とする。`Step`で聞けば毎回聞き直す
+- `status`の`decisions`は、答えを待つものの`id`、`question`、`choices`、`machine`、`state`、`elapsed`を返す
+- 選択肢があるときは、そのどれかでない答えを断る。答えは1回だけ受ける
 
 ## eval
 

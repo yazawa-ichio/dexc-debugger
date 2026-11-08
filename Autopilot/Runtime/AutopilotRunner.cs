@@ -10,6 +10,13 @@ namespace Dexc.Autopilot
 		IAutopilotBackend FindBackend(string name);
 		IDictionary<string, object> Load(byte[] assembly, string backend);
 		IDictionary<string, object> Status();
+
+		/// <summary>The machines of the loaded bot, their states and where each Goto leads.</summary>
+		IDictionary<string, object> Graph();
+
+		/// <summary>Answers a decision a bot is waiting on.</summary>
+		/// <param name="by">"human" or "agent".</param>
+		IDictionary<string, object> Answer(string id, string answer, string by);
 	}
 
 	/// <summary>
@@ -32,6 +39,7 @@ namespace Dexc.Autopilot
 		private readonly Dictionary<string, AutopilotBlackboard> m_StateBoards = new Dictionary<string, AutopilotBlackboard>();
 		private readonly Dictionary<string, string> m_Resume = new Dictionary<string, string>();
 		private readonly AutopilotBlackboard m_Shared = new AutopilotBlackboard();
+		private readonly List<AutopilotDecision> m_Decisions = new List<AutopilotDecision>();
 		private readonly TContext m_Context;
 		private readonly string m_EntryType;
 		private IAutopilotModule m_Module;
@@ -42,6 +50,7 @@ namespace Dexc.Autopilot
 		private float m_StateStarted;
 		private int m_LoadCount;
 		private int m_Steps;
+		private int m_Asked;
 		private string m_Failure;
 		private IReadOnlyList<string> m_Missing = new string[0];
 
@@ -52,6 +61,7 @@ namespace Dexc.Autopilot
 			m_Context = context;
 			m_EntryType = entryType;
 			m_Context.Shared = m_Shared;
+			m_Context.AskHandler = Ask;
 			foreach (var backend in backends)
 				m_Backends[backend.Name] = backend;
 		}
@@ -98,6 +108,7 @@ namespace Dexc.Autopilot
 
 		public void Unload()
 		{
+			Withdraw(null, null);
 			m_Active = null;
 			m_Builder = null;
 			m_Module?.Dispose();
@@ -146,9 +157,62 @@ namespace Dexc.Autopilot
 				["failure"] = m_Failure,
 				["missing"] = m_Missing,
 				["log"] = new List<string>(m_Log),
+				["decisions"] = Decisions(),
 			};
 			StatusRequested?.Invoke(result);
 			return result;
+		}
+
+		public IDictionary<string, object> Graph()
+		{
+			var machines = new List<object>();
+			if (m_Builder != null)
+			{
+				foreach (var machine in m_Builder.Machines)
+				{
+					var states = new List<object>();
+					foreach (var state in machine.States.Values)
+					{
+						var targets = new List<string>();
+						foreach (var transition in state.Transitions)
+							targets.Add(transition.Value);
+						states.Add(new Dictionary<string, object> { ["name"] = state.Name, ["goto"] = targets });
+					}
+
+					machines.Add(new Dictionary<string, object>
+					{
+						["name"] = machine.Name,
+						["when"] = machine.Condition != null,
+						["dwell"] = machine.MinimumTime,
+						["restartOnEnter"] = machine.Restarts,
+						["first"] = machine.First?.Name,
+						// An interrupted machine keeps its state and goes on from there.
+						["current"] = machine.Current?.Name,
+						["states"] = states,
+					});
+				}
+			}
+
+			return new Dictionary<string, object>
+			{
+				["loadCount"] = m_LoadCount,
+				["active"] = m_Active?.Name,
+				["selectInterval"] = m_Builder?.SelectInterval ?? 0f,
+				["machines"] = machines,
+			};
+		}
+
+		public IDictionary<string, object> Answer(string id, string answer, string by)
+		{
+			var decision = m_Decisions.Find(pending => pending.Id == id);
+			if (decision == null)
+				return new Dictionary<string, object> { ["ok"] = false, ["error"] = "No decision " + id + " is waiting." };
+			if (answer == null || (decision.Choices.Count > 0 && !Contains(decision.Choices, answer)))
+				return new Dictionary<string, object> { ["ok"] = false, ["error"] = "Not one of the choices: " + answer };
+			decision.Settle(answer, by);
+			m_Decisions.Remove(decision);
+			Write("answer " + id + " by " + by + ": " + answer);
+			return new Dictionary<string, object> { ["ok"] = true };
 		}
 
 		public void Write(string text)
@@ -156,6 +220,65 @@ namespace Dexc.Autopilot
 			m_Log.Add(Time.time.ToString("0.00") + " " + text);
 			if (m_Log.Count > LogCapacity)
 				m_Log.RemoveAt(0);
+		}
+
+		private AutopilotDecision Ask(string question, string[] choices)
+		{
+			m_Asked++;
+			var decision = new AutopilotDecision("d" + m_Asked, question, choices, m_Active?.Name, m_Active?.Current?.Name);
+			m_Decisions.Add(decision);
+			Write("ask " + decision.Id + ": " + question);
+			return decision;
+		}
+
+		/// <summary>Takes back what the state asked; null for both takes back everything.</summary>
+		private void Withdraw(string machine, string state)
+		{
+			for (var index = m_Decisions.Count - 1; index >= 0; index--)
+			{
+				var decision = m_Decisions[index];
+				if (machine != null && (decision.Machine != machine || decision.State != state))
+					continue;
+				decision.IsWithdrawn = true;
+				m_Decisions.RemoveAt(index);
+				Write("withdraw " + decision.Id);
+			}
+		}
+
+		private List<object> Decisions()
+		{
+			var decisions = new List<object>();
+			foreach (var decision in m_Decisions)
+			{
+				decisions.Add(new Dictionary<string, object>
+				{
+					["id"] = decision.Id,
+					["question"] = decision.Question,
+					["choices"] = decision.Choices,
+					["machine"] = decision.Machine,
+					["state"] = decision.State,
+					["elapsed"] = decision.Elapsed,
+				});
+			}
+
+			return decisions;
+		}
+
+		private static bool Contains(IReadOnlyList<string> choices, string answer)
+		{
+			foreach (var choice in choices)
+			{
+				if (choice == answer)
+					return true;
+			}
+
+			return false;
+		}
+
+		private void ExitState(AutopilotMachine<TContext> machine)
+		{
+			machine.Current.ExitAction?.Invoke(m_Context);
+			Withdraw(machine.Name, machine.Current.Name);
 		}
 
 		private void Select()
@@ -180,7 +303,7 @@ namespace Dexc.Autopilot
 				return;
 			// The state it was in is kept: an interrupted machine goes on from there.
 			if (m_Active?.Current != null)
-				m_Active.Current.ExitAction?.Invoke(m_Context);
+				ExitState(m_Active);
 			m_Active = machine;
 			if (machine == null)
 				return;
@@ -207,7 +330,7 @@ namespace Dexc.Autopilot
 				if (!transition.Key(m_Context))
 					continue;
 				var next = m_Active.State(transition.Value);
-				m_Active.Current.ExitAction?.Invoke(m_Context);
+				ExitState(m_Active);
 				m_Context.State.Clear();
 				EnterState(m_Active, next);
 				return;
