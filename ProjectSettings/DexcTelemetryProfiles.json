@@ -1,0 +1,10 @@
+{
+  "active": "Tests",
+  "presets": [
+    {
+      "name": "Tests",
+      "assemblies": ["DexcDebugger.Tests.Telemetry"],
+      "namespaces": ["DexcDebugger.Tests.Telemetry.Watched"]
+    }
+  ]
+}

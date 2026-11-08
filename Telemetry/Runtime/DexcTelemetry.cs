@@ -68,6 +68,55 @@ namespace Dexc.Telemetry
 			TelemetryRoot.Current.StopCapture();
 		}
 
+		/// <summary>
+		/// Records the calls of the methods the profile of the IL processing chose, while telemetry runs: each call is a span
+		/// with its allocation. A method the profile did not choose has no measuring to turn on, and nothing happens. Only
+		/// a build with <c>DEXC_TELEMETRY_WATCH</c> has the measuring at all.
+		/// </summary>
+		/// <param name="name">The full name of the type, a dot and the method, such as <c>Game.Stage.Load</c>, or a prefix that ends with <c>*</c>, such as <c>Game.Stage.*</c>.</param>
+		public static void Watch(string name)
+		{
+			TelemetryRoot.Current.Methods.Watch(name);
+		}
+
+		/// <inheritdoc cref="Watch(string)"/>
+		/// <param name="method">The method, as <c>typeof(Stage).GetMethod(nameof(Stage.Load))</c> gives it. Its overloads are watched with it.</param>
+		public static void Watch(System.Reflection.MethodBase method)
+		{
+			TelemetryRoot.Current.Methods.Watch(TelemetryMethods.NameOf(method));
+		}
+
+		/// <inheritdoc cref="Watch(string)"/>
+		/// <param name="method">A delegate to the method, such as <c>(Action)stage.Load</c>.</param>
+		public static void Watch(Delegate method)
+		{
+			Watch(method.Method);
+		}
+
+		/// <summary>Stops what <see cref="Watch(string)"/> started with the same name or prefix.</summary>
+		public static void Unwatch(string name)
+		{
+			TelemetryRoot.Current.Methods.Unwatch(name);
+		}
+
+		/// <inheritdoc cref="Unwatch(string)"/>
+		public static void Unwatch(System.Reflection.MethodBase method)
+		{
+			TelemetryRoot.Current.Methods.Unwatch(TelemetryMethods.NameOf(method));
+		}
+
+		/// <inheritdoc cref="Unwatch(string)"/>
+		public static void Unwatch(Delegate method)
+		{
+			Unwatch(method.Method);
+		}
+
+		/// <summary>Stops watching every method.</summary>
+		public static void UnwatchAll()
+		{
+			TelemetryRoot.Current.Methods.UnwatchAll();
+		}
+
 		/// <summary>Writes what is left and closes the file. Does nothing when not running.</summary>
 		public static void Stop()
 		{

@@ -15,7 +15,13 @@
   "defineConstraints": [
     "UNITY_INCLUDE_TESTS"
   ],
-  "versionDefines": [],
+  "versionDefines": [
+    {
+      "name": "jp.yazawa-ichio.dexc-telemetry",
+      "expression": "0.0.0",
+      "define": "DEXC_TELEMETRY_WATCH"
+    }
+  ],
   "noEngineReferences": false,
   "optionalUnityReferences": [
     "TestAssemblies"

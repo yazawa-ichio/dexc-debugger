@@ -1,20 +1,24 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using UnityEngine.Profiling;
 
 namespace Dexc.Telemetry
 {
 	/// <summary>
-	/// The calls of the methods the IL processing measures. During a capture each call is a span, a child of the measured
-	/// call it runs in, or of the frame. Calls are thinned by <see cref="TelemetryMethodAttribute.Every"/> and capped by
-	/// <see cref="TelemetryMethodAttribute.PerFrame"/>, and what is left out is counted. Calls on other threads, where asked
-	/// for, go through a lock into a queue that the main thread writes.
+	/// The calls of the methods the IL processing measures. A method with <see cref="TelemetryMethodAttribute"/> is recorded
+	/// during a capture; one the profile chose is recorded while it is watched. Each recorded call is a span, a child of the
+	/// measured call it runs in, or of the frame of a capture. Calls are thinned and capped per frame, and what is left out
+	/// is counted. Calls on other threads, where asked for, go through a lock into a queue that the main thread writes.
 	/// </summary>
 	internal sealed class TelemetryMethods
 	{
 		const int StackCapacity = 64;
 		const int QueueCapacity = 1024;
+		const long NoAllocation = -1;
+		const long AllocationsByRecorder = -2;
 
 		sealed class Calls
 		{
@@ -31,6 +35,12 @@ namespace Dexc.Telemetry
 			internal long StartTicks;
 			internal long EndTicks;
 			internal int Thread;
+		}
+
+		struct Decision
+		{
+			internal int Version;
+			internal bool IsWatched;
 		}
 
 		/// <summary>The names come from string constants, which are the same object at every call.</summary>
@@ -55,14 +65,22 @@ namespace Dexc.Telemetry
 		readonly Dictionary<string, Calls> m_Calls = new Dictionary<string, Calls>(new SameString());
 		readonly object m_Lock = new object();
 		readonly Dictionary<string, Calls> m_OtherCalls = new Dictionary<string, Calls>(new SameString());
+		readonly HashSet<string> m_WatchedNames = new HashSet<string>(StringComparer.Ordinal);
+		readonly List<string> m_WatchedPrefixes = new List<string>();
+		readonly Dictionary<string, Decision> m_Decisions = new Dictionary<string, Decision>(new SameString());
 		TelemetryContext[] m_Stack;
 		int m_Depth;
+		int m_Frame;
+		int m_WatchCount;
+		int m_WatchVersion;
 		Ended[] m_Ended;
 		Ended[] m_Draining;
 		int m_EndedCount;
 		int m_OtherSkipped;
 		int m_OtherDropped;
 		int m_Pending;
+		bool? m_CountsBytes;
+		Recorder m_Allocations;
 
 		internal TelemetryMethods(TelemetryMetrics metrics, TelemetryTraces traces, TelemetryCapture capture)
 		{
@@ -73,12 +91,137 @@ namespace Dexc.Telemetry
 			m_Dropped = metrics.Counter("dexc.telemetry.method_calls.dropped", "{call}");
 		}
 
+		/// <summary>A new frame: the cap of each method starts again.</summary>
+		internal void OnFrame()
+		{
+			m_Frame++;
+		}
+
+		/// <summary>A method with the attribute, recorded during a capture.</summary>
 		internal TelemetryMethodProbe Enter(string scope, string name, TelemetryDetail detail, int every, int perFrame, bool anyThread, bool isAsync)
 		{
 			if (!m_Capture.IsActive || detail > m_Metrics.Detail)
 			{
 				return default;
 			}
+			return Record(scope, name, every, perFrame, anyThread, isAsync);
+		}
+
+		/// <summary>A method the profile chose, recorded while it is watched. With nothing watched it costs one test.</summary>
+		internal TelemetryMethodProbe EnterWatched(string scope, string name, int every, int perFrame, bool anyThread, bool isAsync)
+		{
+			if (m_WatchCount == 0 || !IsWatched(name))
+			{
+				return default;
+			}
+			return Record(scope, name, every, perFrame, anyThread, isAsync);
+		}
+
+		/// <summary>The name of a method as the IL processing writes it: the full name of its type, a dot and the method.</summary>
+		internal static string NameOf(MethodBase method)
+		{
+			var type = method.DeclaringType;
+			if (type.IsGenericType && !type.IsGenericTypeDefinition)
+			{
+				type = type.GetGenericTypeDefinition();
+			}
+			return type.FullName.Replace('+', '.') + "." + method.Name;
+		}
+
+		/// <summary>Watches a method by its name, or the methods under a prefix that ends with <c>*</c>.</summary>
+		internal void Watch(string pattern)
+		{
+			if (string.IsNullOrEmpty(pattern))
+			{
+				throw new ArgumentException("Name a method, or a prefix that ends with *.", nameof(pattern));
+			}
+			lock (m_Lock)
+			{
+				if (pattern.EndsWith("*", StringComparison.Ordinal))
+				{
+					var prefix = pattern.Substring(0, pattern.Length - 1);
+					if (!m_WatchedPrefixes.Contains(prefix))
+					{
+						m_WatchedPrefixes.Add(prefix);
+					}
+				}
+				else
+				{
+					m_WatchedNames.Add(pattern);
+				}
+				WatchChanged();
+			}
+		}
+
+		internal void Unwatch(string pattern)
+		{
+			lock (m_Lock)
+			{
+				if (pattern.EndsWith("*", StringComparison.Ordinal))
+				{
+					m_WatchedPrefixes.Remove(pattern.Substring(0, pattern.Length - 1));
+				}
+				else
+				{
+					m_WatchedNames.Remove(pattern);
+				}
+				WatchChanged();
+			}
+		}
+
+		internal void UnwatchAll()
+		{
+			lock (m_Lock)
+			{
+				m_WatchedNames.Clear();
+				m_WatchedPrefixes.Clear();
+				WatchChanged();
+			}
+		}
+
+		void WatchChanged()
+		{
+			m_WatchCount = m_WatchedNames.Count + m_WatchedPrefixes.Count;
+			m_WatchVersion++;
+		}
+
+		/// <summary>On the main thread the answer for each name is kept until the watched set changes.</summary>
+		bool IsWatched(string name)
+		{
+			if (Environment.CurrentManagedThreadId != m_Traces.MainThread)
+			{
+				lock (m_Lock)
+				{
+					return Matches(name);
+				}
+			}
+			if (m_Decisions.TryGetValue(name, out var decision) && decision.Version == m_WatchVersion)
+			{
+				return decision.IsWatched;
+			}
+			var watched = Matches(name);
+			m_Decisions[name] = new Decision { Version = m_WatchVersion, IsWatched = watched };
+			return watched;
+		}
+
+		bool Matches(string name)
+		{
+			if (m_WatchedNames.Contains(name))
+			{
+				return true;
+			}
+			foreach (var prefix in m_WatchedPrefixes)
+			{
+				if (name.StartsWith(prefix, StringComparison.Ordinal))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		TelemetryMethodProbe Record(string scope, string name, int every, int perFrame, bool anyThread, bool isAsync)
+		{
 			if (Environment.CurrentManagedThreadId != m_Traces.MainThread)
 			{
 				return anyThread ? EnterOtherThread(scope, name, every, perFrame) : default;
@@ -88,7 +231,7 @@ namespace Dexc.Telemetry
 				calls = new Calls { Tracer = m_Traces.Tracer(scope) };
 				m_Calls.Add(name, calls);
 			}
-			if (!Admit(calls, every, perFrame, m_Capture.Frame, out var skipped))
+			if (!Admit(calls, every, perFrame, m_Frame, out var skipped))
 			{
 				(skipped ? m_Skipped : m_Dropped).Add(1, TelemetryDetail.Basic);
 				return default;
@@ -103,6 +246,8 @@ namespace Dexc.Telemetry
 			{
 				span.Set("dexc.method.every", every);
 			}
+			// An async call ends elsewhere, where the allocation of this thread says nothing about it.
+			var allocation = isAsync ? NoAllocation : BeginAllocation();
 			if (!isAsync)
 			{
 				m_Stack = m_Stack ?? new TelemetryContext[StackCapacity];
@@ -112,17 +257,58 @@ namespace Dexc.Telemetry
 				}
 				m_Depth++;
 			}
-			return new TelemetryMethodProbe(this, span.Index, span.Generation, isAsync);
+			return new TelemetryMethodProbe(this, span.Index, span.Generation, isAsync, allocation);
 		}
 
 		/// <summary>The end of a call. That of an async method may come on another thread, which the span takes care of.</summary>
-		internal void Exit(int index, int generation, bool isAsync)
+		internal void Exit(int index, int generation, bool isAsync, long allocation)
 		{
 			if (!isAsync)
 			{
 				m_Depth--;
 			}
+			if (allocation >= 0)
+			{
+				m_Traces.SetAttribute(index, generation, "dexc.method.allocated_bytes", GC.GetAllocatedBytesForCurrentThread() - allocation);
+			}
+			else if (allocation == AllocationsByRecorder)
+			{
+				m_Allocations.enabled = false;
+				m_Traces.SetAttribute(index, generation, "dexc.method.allocations", m_Allocations.sampleBlockCount);
+			}
 			m_Traces.End(index, generation);
+		}
+
+		/// <summary>
+		/// The allocated bytes of this thread when the runtime counts them. Otherwise the Profiler counts the allocations,
+		/// only around the outermost call, since one recorder cannot be nested.
+		/// </summary>
+		long BeginAllocation()
+		{
+			if (m_CountsBytes == null)
+			{
+				var before = GC.GetAllocatedBytesForCurrentThread();
+				GC.KeepAlive(new byte[64]);
+				m_CountsBytes = GC.GetAllocatedBytesForCurrentThread() != before;
+			}
+			if (m_CountsBytes.Value)
+			{
+				return GC.GetAllocatedBytesForCurrentThread();
+			}
+			if (m_Depth > 0)
+			{
+				return NoAllocation;
+			}
+			m_Allocations = m_Allocations ?? Recorder.Get("GC.Alloc");
+			if (!m_Allocations.isValid)
+			{
+				return NoAllocation;
+			}
+			// Turning it off first clears what it held, as the allocation check of the Unity tests does.
+			m_Allocations.enabled = false;
+			m_Allocations.FilterToCurrentThread();
+			m_Allocations.enabled = true;
+			return AllocationsByRecorder;
 		}
 
 		/// <summary>Counts the call, and says whether it is recorded. A call left out is skipped by thinning or dropped by the cap.</summary>
@@ -156,7 +342,7 @@ namespace Dexc.Telemetry
 					calls = new Calls();
 					m_OtherCalls.Add(name, calls);
 				}
-				if (!Admit(calls, every, perFrame, m_Capture.Frame, out var skipped))
+				if (!Admit(calls, every, perFrame, m_Frame, out var skipped))
 				{
 					if (skipped)
 					{

@@ -14,6 +14,8 @@ namespace Dexc.Telemetry.CodeGen
 		const string ValueType = "Dexc.Telemetry.TelemetryValue";
 		const string TracerType = "Dexc.Telemetry.TelemetryTracer";
 		const string MethodAttributeType = "Dexc.Telemetry.TelemetryMethodAttribute";
+		internal const string RuntimeAssembly = "Dexc.Telemetry";
+		internal const string WatchSymbol = "DEXC_TELEMETRY_WATCH";
 		internal const string DetailBasic = "DEXC_TELEMETRY_DETAIL_BASIC";
 		internal const string DetailStandard = "DEXC_TELEMETRY_DETAIL_STANDARD";
 		internal const string DetailDetailed = "DEXC_TELEMETRY_DETAIL_DETAILED";
@@ -194,7 +196,7 @@ namespace Dexc.Telemetry.CodeGen
 					var name = method.DeclaringType.FullName.Replace('/', '.') + "." + method.Name;
 					if (machine != null)
 					{
-						if (MethodInstrumenter.WrapAsync(method, machine, attribute.AttributeType.Scope, module.Assembly.Name.Name, name, options, out var problem))
+						if (MethodInstrumenter.WrapAsync(method, machine, attribute.AttributeType.Scope, module.Assembly.Name.Name, name, options, "EnterAsync", out var problem))
 						{
 							changed = true;
 						}
@@ -204,11 +206,97 @@ namespace Dexc.Telemetry.CodeGen
 						}
 						continue;
 					}
-					MethodInstrumenter.Wrap(method, attribute.AttributeType.Scope, module.Assembly.Name.Name, name, options);
+					MethodInstrumenter.Wrap(method, attribute.AttributeType.Scope, module.Assembly.Name.Name, name, options, "Enter");
 					changed = true;
 				}
 			}
 			return changed;
+		}
+
+		/// <summary>
+		/// Puts the measuring that <c>DexcTelemetry.Watch</c> turns on into each method the preset or the selectors of the
+		/// project choose. It stays off until then. Constructors, accessors, code the compiler made, iterators and methods
+		/// that already have <c>TelemetryMethodAttribute</c> are left out. An assembly that does not refer to the runtime
+		/// is given the reference.
+		/// </summary>
+		/// <returns>Whether anything changed.</returns>
+		internal static bool InstrumentWatched(ModuleDefinition module, TelemetryProfile preset, IReadOnlyList<ITelemetryMethodSelector> selectors, List<TelemetryDiagnostic> diagnostics)
+		{
+			var assembly = module.Assembly.Name.Name;
+			IMetadataScope runtime = null;
+			var changed = false;
+			foreach (var type in module.GetTypes())
+			{
+				if (IsCompilerGenerated(type) || MethodAttribute(type) != null)
+				{
+					continue;
+				}
+				foreach (var method in type.Methods)
+				{
+					if (!method.HasBody || method.IsConstructor || method.IsSpecialName || IsCompilerGenerated(method) || IsIterator(method) || MethodAttribute(method) != null)
+					{
+						continue;
+					}
+					var byPreset = preset != null && preset.Chooses(assembly, method);
+					if (!byPreset && !Selected(selectors, assembly, method))
+					{
+						continue;
+					}
+					var options = new MethodInstrumenter.Options
+					{
+						Detail = 0,
+						Every = preset?.Every ?? 1,
+						PerFrame = preset?.PerFrame ?? 32,
+						AnyThread = preset?.AnyThread ?? false,
+					};
+					runtime = runtime ?? Runtime(module);
+					var name = method.DeclaringType.FullName.Replace('/', '.') + "." + method.Name;
+					var machine = AsyncMachine(method);
+					if (machine == null)
+					{
+						MethodInstrumenter.Wrap(method, runtime, assembly, name, options, "EnterWatched");
+						changed = true;
+					}
+					else if (MethodInstrumenter.WrapAsync(method, machine, runtime, assembly, name, options, "EnterWatchedAsync", out var problem))
+					{
+						changed = true;
+					}
+					else
+					{
+						var point = FirstPoint(MethodInstrumenter.MoveNext(machine));
+						diagnostics.Add(TelemetryDiagnostic.Warning(point?.Document.Url, point?.StartLine ?? 0, point?.StartColumn ?? 0, "The watch left this async method as written, because " + problem + ": " + method.FullName));
+					}
+				}
+			}
+			return changed;
+		}
+
+		static bool Selected(IReadOnlyList<ITelemetryMethodSelector> selectors, string assembly, MethodDefinition method)
+		{
+			if (selectors.Count == 0)
+			{
+				return false;
+			}
+			var candidate = new TelemetryMethodCandidate(assembly, method);
+			return selectors.Any(selector => selector.Select(candidate));
+		}
+
+		/// <summary>The reference of the module to the runtime, which it is given when it has none.</summary>
+		static IMetadataScope Runtime(ModuleDefinition module)
+		{
+			var existing = module.AssemblyReferences.FirstOrDefault(reference => reference.Name == RuntimeAssembly);
+			if (existing != null)
+			{
+				return existing;
+			}
+			var added = new AssemblyNameReference(RuntimeAssembly, new Version(0, 0, 0, 0));
+			module.AssemblyReferences.Add(added);
+			return added;
+		}
+
+		static bool IsCompilerGenerated(TypeDefinition type)
+		{
+			return type.CustomAttributes.Any(attribute => attribute.AttributeType.FullName == "System.Runtime.CompilerServices.CompilerGeneratedAttribute");
 		}
 
 		static SequencePoint FirstPoint(MethodDefinition method)

@@ -145,6 +145,7 @@ namespace Dexc.Telemetry
 		internal void OnFrame(double deltaSeconds, int frame = 0)
 		{
 			m_Sources?.OnFrame(deltaSeconds);
+			Methods.OnFrame();
 			if (!IsRunning)
 			{
 				return;

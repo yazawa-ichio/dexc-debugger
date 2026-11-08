@@ -167,7 +167,13 @@ namespace DexcDebugger.Tests.Telemetry
 
 		List<List<Field>> Spans()
 		{
-			var file = m_Traces.ToArray();
+			return ReadSpans(m_Traces);
+		}
+
+		/// <summary>The spans in the frames of the stream, in order.</summary>
+		internal static List<List<Field>> ReadSpans(MemoryStream stream)
+		{
+			var file = stream.ToArray();
 			var spans = new List<List<Field>>();
 			var position = 0;
 			while (position < file.Length)
@@ -185,7 +191,7 @@ namespace DexcDebugger.Tests.Telemetry
 			return spans;
 		}
 
-		static string Name(List<Field> span)
+		internal static string Name(List<Field> span)
 		{
 			return span.Single(field => field.Number == 5).Text;
 		}
@@ -195,7 +201,7 @@ namespace DexcDebugger.Tests.Telemetry
 			return spans.Where(span => Name(span) == Prefix + method).ToList();
 		}
 
-		static byte[] Id(List<Field> span, int number)
+		internal static byte[] Id(List<Field> span, int number)
 		{
 			return span.Single(field => field.Number == number).Bytes;
 		}

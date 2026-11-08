@@ -10,12 +10,19 @@ using Unity.CompilationPipeline.Common.ILPostProcessing;
 namespace Dexc.Telemetry.CodeGen
 {
 	/// <summary>
-	/// Runs <see cref="TelemetryWeaver"/> on every assembly that uses <c>Dexc.Telemetry</c>. Unity runs it while compiling,
-	/// for the Editor and for each Player build, so what it reports is a compile error.
+	/// Runs <see cref="TelemetryWeaver"/> on every assembly that uses <c>Dexc.Telemetry</c>, and with
+	/// <c>DEXC_TELEMETRY_WATCH</c> also on those the active preset or a selector may choose from. Unity runs it while
+	/// compiling, for the Editor and for each Player build, so what it reports is a compile error. It runs in a process of
+	/// its own whose folder is the project.
 	/// </summary>
 	internal sealed class TelemetryPostProcessor : ILPostProcessor
 	{
-		const string RuntimeAssembly = "Dexc.Telemetry";
+		readonly object m_Lock = new object();
+		TelemetryProfiles m_Profiles;
+		string m_ProfilesError;
+		DateTime m_ProjectTime;
+		DateTime m_UserTime;
+		IReadOnlyList<ITelemetryMethodSelector> m_Selectors;
 
 		public override ILPostProcessor GetInstance()
 		{
@@ -24,8 +31,21 @@ namespace Dexc.Telemetry.CodeGen
 
 		public override bool WillProcess(ICompiledAssembly compiledAssembly)
 		{
-			return compiledAssembly.Name != RuntimeAssembly
-				&& compiledAssembly.References.Any(reference => Path.GetFileNameWithoutExtension(reference) == RuntimeAssembly);
+			var name = compiledAssembly.Name;
+			if (name == TelemetryWeaver.RuntimeAssembly || name.EndsWith(".CodeGen", StringComparison.Ordinal))
+			{
+				return false;
+			}
+			if (compiledAssembly.References.Any(reference => Path.GetFileNameWithoutExtension(reference) == TelemetryWeaver.RuntimeAssembly))
+			{
+				return true;
+			}
+			if (!compiledAssembly.Defines.Contains(TelemetryWeaver.WatchSymbol))
+			{
+				return false;
+			}
+			var profiles = Profiles(out var error);
+			return error != null || profiles.Active?.MayChoose(name) == true || Selectors().Count > 0;
 		}
 
 		public override ILPostProcessResult Process(ICompiledAssembly compiledAssembly)
@@ -53,10 +73,23 @@ namespace Dexc.Telemetry.CodeGen
 					};
 					using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(compiledAssembly.InMemoryAssembly.PeData), parameters))
 					{
-						TelemetryWeaver.Check(assembly.MainModule, diagnostics);
+						var module = assembly.MainModule;
+						TelemetryWeaver.Check(module, diagnostics);
 						var defines = new HashSet<string>(compiledAssembly.Defines);
-						var changed = TelemetryWeaver.StripSpans(assembly.MainModule, defines, ReadSource);
-						changed |= TelemetryWeaver.InstrumentMethods(assembly.MainModule, defines, ReadSource, diagnostics);
+						var changed = TelemetryWeaver.StripSpans(module, defines, ReadSource);
+						changed |= TelemetryWeaver.InstrumentMethods(module, defines, ReadSource, diagnostics);
+						if (defines.Contains(TelemetryWeaver.WatchSymbol))
+						{
+							var profiles = Profiles(out var error);
+							if (error != null)
+							{
+								diagnostics.Add(TelemetryDiagnostic.Error(null, 0, 0, error));
+							}
+							else
+							{
+								changed |= TelemetryWeaver.InstrumentWatched(module, profiles.Active, Selectors(), diagnostics);
+							}
+						}
 						if (changed)
 						{
 							var pe = new MemoryStream();
@@ -76,6 +109,68 @@ namespace Dexc.Telemetry.CodeGen
 				return null;
 			}
 			return new ILPostProcessResult(written ?? compiledAssembly.InMemoryAssembly, diagnostics.Select(ToMessage).ToList());
+		}
+
+		/// <summary>The presets, read again when a file changed. Assemblies may be processed at the same time.</summary>
+		TelemetryProfiles Profiles(out string error)
+		{
+			lock (m_Lock)
+			{
+				var folder = Directory.GetCurrentDirectory();
+				var projectTime = WriteTime(Path.Combine(folder, TelemetryProfiles.ProjectFile));
+				var userTime = WriteTime(Path.Combine(folder, TelemetryProfiles.UserFile));
+				if ((m_Profiles == null && m_ProfilesError == null) || projectTime != m_ProjectTime || userTime != m_UserTime)
+				{
+					m_ProjectTime = projectTime;
+					m_UserTime = userTime;
+					try
+					{
+						m_Profiles = TelemetryProfiles.Load(folder);
+						m_ProfilesError = null;
+					}
+					catch (Exception exception) when (exception is FormatException || exception is IOException)
+					{
+						m_Profiles = null;
+						m_ProfilesError = "The telemetry profiles could not be read: " + exception.Message;
+					}
+				}
+				error = m_ProfilesError;
+				return m_Profiles;
+			}
+		}
+
+		static DateTime WriteTime(string path)
+		{
+			return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+		}
+
+		/// <summary>The selectors of the project: the code generation assemblies of Unity are all loaded in this process.</summary>
+		IReadOnlyList<ITelemetryMethodSelector> Selectors()
+		{
+			lock (m_Lock)
+			{
+				if (m_Selectors == null)
+				{
+					var found = new List<ITelemetryMethodSelector>();
+					foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+					{
+						var name = assembly.GetName().Name;
+						if (!name.StartsWith("Unity.", StringComparison.Ordinal) || !name.EndsWith(".CodeGen", StringComparison.Ordinal))
+						{
+							continue;
+						}
+						foreach (var type in assembly.GetTypes())
+						{
+							if (!type.IsAbstract && typeof(ITelemetryMethodSelector).IsAssignableFrom(type) && type.GetConstructor(Type.EmptyTypes) != null)
+							{
+								found.Add((ITelemetryMethodSelector)Activator.CreateInstance(type));
+							}
+						}
+					}
+					m_Selectors = found;
+				}
+				return m_Selectors;
+			}
 		}
 
 		static SourceSymbols ReadSource(string path)

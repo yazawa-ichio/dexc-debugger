@@ -74,7 +74,7 @@ namespace Dexc.Telemetry.CodeGen
 		/// </summary>
 		/// <param name="problem">What did not fit, when nothing changed.</param>
 		/// <returns>False when the method is not in the shape the compiler makes, and nothing changed.</returns>
-		internal static bool WrapAsync(MethodDefinition method, TypeDefinition machine, IMetadataScope runtime, string scope, string name, Options options, out string problem)
+		internal static bool WrapAsync(MethodDefinition method, TypeDefinition machine, IMetadataScope runtime, string scope, string name, Options options, string enterName, out string problem)
 		{
 			var module = method.Module;
 			var moveNext = MoveNext(machine);
@@ -117,7 +117,7 @@ namespace Dexc.Telemetry.CodeGen
 
 			var variable = (VariableDefinition)machineLoad.Operand;
 			var setProbe = new List<Instruction> { Instruction.Create(machine.IsValueType ? OpCodes.Ldloca : OpCodes.Ldloc, variable) };
-			setProbe.AddRange(EnterCall(EnterMethod(module, runtime, "EnterAsync"), scope, name, options));
+			setProbe.AddRange(EnterCall(EnterMethod(module, runtime, enterName), scope, name, options));
 			setProbe.Add(Instruction.Create(OpCodes.Stfld, fromStub));
 			InsertBefore(stub, startArguments, setProbe.ToArray());
 
@@ -182,11 +182,12 @@ namespace Dexc.Telemetry.CodeGen
 		}
 
 		/// <param name="runtime">The assembly of the runtime, as the module refers to it.</param>
-		internal static void Wrap(MethodDefinition method, IMetadataScope runtime, string scope, string name, Options options)
+		/// <param name="enterName">The entry of <c>TelemetryMethodProbe</c> to call.</param>
+		internal static void Wrap(MethodDefinition method, IMetadataScope runtime, string scope, string name, Options options, string enterName)
 		{
 			var module = method.Module;
 			var probeType = ProbeType(module, runtime);
-			var enter = EnterMethod(module, runtime, "Enter");
+			var enter = EnterMethod(module, runtime, enterName);
 			var exit = ExitMethod(module, runtime);
 
 			var body = method.Body;

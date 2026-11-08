@@ -313,6 +313,63 @@ sealed class Stage { }
 - 状態機械がコンパイラーの通常の形でなければ、警告を出してそのままにする。EditorのDebugのコンパイル（状態機械はクラス）で確かめた。Releaseのコンパイル（状態機械は構造体）は最後のPlayerの確認で確かめる
 - イテレーターは計測しない。本体が状態機械を作るだけで、終わりを示す呼び出しが無いためである
 - 同じ名前のオーバーロードは、間引きと上限を共有する
+- 記録した呼び出しには確保を付ける。ランタイムがスレッドの確保量を数えるなら、前後の`GC.GetAllocatedBytesForCurrentThread`の差を`dexc.method.allocated_bytes`にする。数えないとき（Editorは常に0を返す）は、Profilerの`Recorder("GC.Alloc")`で確保の回数を`dexc.method.allocations`にする。1つのrecorderは入れ子にできないので、計測中の呼び出しの一番外側だけで数える。asyncの呼び出しには付けない。通常ビルドでどちらが使えるかは、最後のPlayerの確認で確かめる
+
+### Watch
+
+```csharp
+DexcTelemetry.Watch("Game.Stage.Load");
+DexcTelemetry.Watch("Game.Stage.*");
+DexcTelemetry.Watch(typeof(Stage).GetMethod(nameof(Stage.Load)));
+DexcTelemetry.Watch((Action)stage.Load);
+DexcTelemetry.Unwatch("Game.Stage.*");
+DexcTelemetry.UnwatchAll();
+```
+
+- `DEXC_TELEMETRY_WATCH`をプロジェクトのシンボルに定義したビルドでは、プリセットか関数で選んだメソッドに、止めた計測を入れる。`Watch`した間だけ、テレメトリーが動いていれば、キャプチャの外でも呼び出しごとのspanにする。キャプチャ中はフレームのspanの子になる
+- `Watch`は名前（型の完全名、ドット、メソッド）か、`*`で終わる前方一致を取る。`MethodInfo`やデリゲートも渡せる。オーバーロードはまとめて扱う。公開のstaticのAPIなので、`eval`からもプロジェクトのコードからも呼べる
+- 止めた計測の費用は、.NET 10のReleaseでの実測で、何もしないメソッド1.5nsに対して次のとおりである。IL2CPPの値は最後に測る
+
+| 状態 | 1回の呼び出し |
+|---|---|
+| テレメトリーを使わない（rootが無い） | 2.9ns |
+| 動いていて、何も`Watch`していない | 3.3ns |
+| 別のメソッドを`Watch`している | 21.5ns（名前ごとの判定を辞書で引く） |
+| このメソッドを`Watch`している（1フレーム1000回、上限32） | 平均45ns |
+
+- コンストラクター、アクセサー、コンパイラーが作ったコード、イテレーター、`TelemetryMethodAttribute`の付いたメソッドは選ばない
+- `Dexc.Telemetry`を参照していないアセンブリも選べる。その場合は参照を足す
+
+### プリセット
+
+```json
+{
+  "active": "Stage",
+  "presets": [
+    { "name": "Stage", "assemblies": ["Game.*"], "namespaces": ["Game.Stage"], "every": 1, "perFrame": 32, "anyThread": false },
+    { "name": "Hot", "attributes": ["Game.HotPathAttribute"] }
+  ]
+}
+```
+
+- プロジェクトのプリセットは`ProjectSettings/DexcTelemetryProfiles.json`、ユーザーのものは`UserSettings/DexcTelemetryProfiles.json`に書く。ユーザーのプリセットは同じ名前のプロジェクトのものを置き換え、ユーザーの`active`が優先する
+- `assemblies`（`*`で終わるものは前方一致）、`namespaces`（その下も含む）、`attributes`（メソッドか型の属性の完全名）のうち、書いたものすべてに合うメソッドを選ぶ。どれも書かなければ何も選ばない
+- `every`、`perFrame`、`anyThread`は、選んだメソッドの間引き、上限、別スレッドの記録である
+- IL処理はプロジェクトのフォルダーで動くので、そこからファイルを読む。ファイルを変えただけではコンパイルが起きない（Editorで確かめた）。反映の仕組みは次の手順で入れる
+
+### 関数で選ぶ
+
+```csharp
+// Unity.MyGame.Telemetry.CodeGen という名前の、Editor用のasmdef。Unity.Dexc.Telemetry.CodeGen を参照する
+public sealed class GameSelector : ITelemetryMethodSelector
+{
+	public bool Select(TelemetryMethodCandidate method) => method.Namespace.StartsWith("Game.") && method.IsPublic;
+}
+```
+
+- `Unity.`で始まり`.CodeGen`で終わる名前のアセンブリは、IL処理のプロセスに読み込まれる。IL処理はそこから`ITelemetryMethodSelector`を実装した型を探し、プリセットに加えて使う（Editorで確かめた）
+- 選ぶ関数はコンパイル中にUnityの外で動くので、UnityEngineとUnityEditorは使えない
+- `TelemetryMethodCandidate`は、アセンブリ、namespace、型、メソッド、属性、static、public、async、引数の数を持つ
 
 ## protobufの書き出し
 

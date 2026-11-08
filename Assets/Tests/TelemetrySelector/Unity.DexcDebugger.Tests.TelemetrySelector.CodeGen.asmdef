@@ -1,0 +1,20 @@
+{
+  "name": "Unity.DexcDebugger.Tests.TelemetrySelector.CodeGen",
+  "rootNamespace": "DexcDebugger.Tests.TelemetrySelector",
+  "references": [
+    "Unity.Dexc.Telemetry.CodeGen"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": true
+}
