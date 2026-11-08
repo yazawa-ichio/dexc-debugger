@@ -17,7 +17,11 @@ namespace Dexc.Telemetry
 		/// <summary>True between <see cref="Start"/> and <see cref="Stop"/>, unless a write failed and ended the output.</summary>
 		public static bool IsRunning => TelemetryRoot.Current.IsRunning;
 
-		/// <summary>Opens new files for this run, one per signal, and starts writing to them periodically.</summary>
+		/// <summary>
+		/// Opens new files for this run, one per signal, and starts writing to them periodically. The command line can set
+		/// the folder with <c>-dexc-telemetry-directory</c> and add to the resource with <c>-dexc-telemetry-resource key=value</c>,
+		/// over the options, as can <c>OTEL_RESOURCE_ATTRIBUTES</c> and <c>OTEL_SERVICE_NAME</c>.
+		/// </summary>
 		/// <returns>The path of the metrics file. The logs are beside it, named the same with <c>logs</c> for <c>metrics</c>.</returns>
 		/// <exception cref="InvalidOperationException">It is already running.</exception>
 		public static string Start(TelemetryOptions options = null)
@@ -32,7 +36,8 @@ namespace Dexc.Telemetry
 			{
 				throw new InvalidOperationException("Telemetry is already running.");
 			}
-			var directory = options.Directory ?? Path.Combine(Application.persistentDataPath, "Telemetry");
+			var arguments = Environment.GetCommandLineArgs();
+			var directory = TelemetryLaunch.Directory(arguments) ?? options.Directory ?? Path.Combine(Application.persistentDataPath, "Telemetry");
 			var run = Guid.NewGuid().ToString("N");
 			var files = new TelemetryFileSet(
 				directory,
@@ -46,7 +51,7 @@ namespace Dexc.Telemetry
 			var metrics = files.Open("metrics");
 			var logs = files.Open("logs");
 			var traces = files.Open("traces");
-			root.Start(metrics, logs, traces, options, Resource(options, run), Time.realtimeSinceStartupAsDouble, files);
+			root.Start(metrics, logs, traces, options, Resource(options, run, arguments), Time.realtimeSinceStartupAsDouble, files);
 			return metrics.Path;
 		}
 
@@ -271,20 +276,30 @@ namespace Dexc.Telemetry
 			TelemetryRoot.Current.Logs.ClearLevel(category);
 		}
 
-		static List<KeyValuePair<string, string>> Resource(TelemetryOptions options, string run)
+		/// <summary>
+		/// The resource of the run, a later layer winning for the same key: what Unity says of the game and the device, the
+		/// options of the code, the environment variables of OpenTelemetry, and last the command line, which the tool that
+		/// started this Player wrote. The id of the run and the name of the SDK are always these.
+		/// </summary>
+		static List<KeyValuePair<string, string>> Resource(TelemetryOptions options, string run, string[] arguments)
 		{
-			var resource = new List<KeyValuePair<string, string>>
+			var unity = new[]
 			{
 				new KeyValuePair<string, string>("service.name", options.ServiceName ?? Application.productName),
 				new KeyValuePair<string, string>("service.version", options.ServiceVersion ?? Application.version),
+				new KeyValuePair<string, string>("device.model.identifier", SystemInfo.deviceModel),
+				new KeyValuePair<string, string>("os.description", SystemInfo.operatingSystem),
+			};
+			var environment = TelemetryLaunch.EnvironmentResource(
+				Environment.GetEnvironmentVariable(TelemetryLaunch.ResourceVariable),
+				Environment.GetEnvironmentVariable(TelemetryLaunch.ServiceNameVariable)
+			);
+			var fixedPairs = new[]
+			{
 				new KeyValuePair<string, string>("service.instance.id", run),
 				new KeyValuePair<string, string>("telemetry.sdk.name", SdkName),
 			};
-			if (options.ResourceAttributes != null)
-			{
-				resource.AddRange(options.ResourceAttributes);
-			}
-			return resource;
+			return TelemetryLaunch.Merge(unity, options.ResourceAttributes, environment, TelemetryLaunch.CommandLineResource(arguments), fixedPairs);
 		}
 	}
 }

@@ -268,7 +268,14 @@ DexcTelemetry.StopCapture();
 - フレームの処理はPlayerLoopの`Initialization`の最後で行う。前のフレームの記録とUnityの計測値がそろった後であり、処理自体は次のフレームのProfilerのフレームに入る。Play Modeのときだけ登録し、`Stop`で外す
 - `OnApplicationPause`と`OnApplicationQuit`でも書く
 - 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない
-- Resourceには`service.name`、`service.version`、`service.instance.id`（実行ごとに固有）、`telemetry.sdk.name`と、`ResourceAttributes`を載せる
+- Resourceは次の層を順に重ね、同じキーは後の層が勝つ。最後の2つは変えられない
+  1. Unityが知るもの：`service.name`（`ServiceName`か`Application.productName`）、`service.version`（`ServiceVersion`か`Application.version`）、`device.model.identifier`（`SystemInfo.deviceModel`）、`os.description`（`SystemInfo.operatingSystem`）
+  2. コードの`ResourceAttributes`
+  3. OpenTelemetryの環境変数：`OTEL_RESOURCE_ATTRIBUTES`（`key=value`をカンマで区切り、値はパーセントエンコード。読めなければ全体を捨てる）と`OTEL_SERVICE_NAME`（`service.name`より優先）。SDKの仕様の読み方である
+  4. コマンドライン：`-dexc-telemetry-resource key=value`（何度でも）。Playerを起動した道具が書く。ビルド、コミット、シードのように、ゲームが知らない実行の情報を載せるためである
+  5. `service.instance.id`（実行ごとに固有）と`telemetry.sdk.name`
+- フォルダーは、コマンドラインの`-dexc-telemetry-directory`、`Directory`、既定の順に決める。同じ製品の複数のビルドは`persistentDataPath`が同じなので、並べて動かす道具がビルドごとに分けるためである
+- 端末を一意に示すID（`SystemInfo.deviceUniqueIdentifier`など）は載せない
 - 記録の時刻は、rootを作ったときの`DateTime.UtcNow`に、`Stopwatch`の経過を足したものである。WindowsのIL2CPPのPlayerでは`DateTime.UtcNow`が約1ms刻みでしか進まず、メソッドのspanの長さが0になったためである（2026-11-08のPlayerの確認）
 
 ## 書き出しと受け渡し
