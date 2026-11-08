@@ -26,7 +26,7 @@ namespace Dexc.Autopilot.Dashboard.Tests
 		[Test]
 		public async Task ALookTakesTheStatusAndTheGraphOnlyWhenTheBotWasLoadedAgain()
 		{
-			var hub = new Hub(m_Workspace.Directory);
+			var hub = new Hub(m_Workspace.Directory, System.TimeSpan.FromSeconds(60));
 
 			await Task.WhenAll(hub.LookAll());
 			await Task.WhenAll(hub.LookAll());
@@ -46,7 +46,7 @@ namespace Dexc.Autopilot.Dashboard.Tests
 		[Test]
 		public async Task OnlyThisMachineIsServedAndChangesNeedTheToken()
 		{
-			var hub = new Hub(m_Workspace.Directory);
+			var hub = new Hub(m_Workspace.Directory, System.TimeSpan.FromSeconds(60));
 			await Task.WhenAll(hub.LookAll());
 			await using var server = new DashboardServer(hub, 0, "secret", TestContext.CurrentContext.TestDirectory);
 			await server.Start();

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -37,10 +38,13 @@ namespace Dexc.Autopilot.Dashboard
 		private readonly ConcurrentDictionary<string, Task> m_Looking = new ConcurrentDictionary<string, Task>(StringComparer.OrdinalIgnoreCase);
 		private readonly List<Channel<string>> m_Listeners = new List<Channel<string>>();
 
-		public Hub(string directory)
+		public Hub(string directory, TimeSpan humanTimeout)
 		{
 			m_Directory = directory;
+			Relay = new Relay(Path.Combine(Compiler.Workspace.Open(directory).Dashboard, "journal.jsonl"), humanTimeout, name => new WorkspacePlayer(Workspace(), name), Publish);
 		}
+
+		public Relay Relay { get; }
 
 		public string Directory => m_Directory;
 
@@ -56,6 +60,7 @@ namespace Dexc.Autopilot.Dashboard
 			while (!cancellation.IsCancellationRequested)
 			{
 				LookAll();
+				Relay.Tick(DateTime.UtcNow);
 				try
 				{
 					await Task.Delay(interval, cancellation);
@@ -98,6 +103,7 @@ namespace Dexc.Autopilot.Dashboard
 				{
 					build.Status = null;
 					build.Error = null;
+					Relay.Observe(name, null, DateTime.UtcNow);
 				}
 				else
 				{
@@ -105,6 +111,7 @@ namespace Dexc.Autopilot.Dashboard
 					build.Status = status;
 					build.Error = null;
 					Remember(build, status);
+					Relay.Observe(name, status["decisions"] as JsonArray ?? new JsonArray(), DateTime.UtcNow);
 					var loadCount = status["loadCount"]?.GetValue<long>() ?? 0;
 					if (loadCount != build.GraphLoadCount)
 					{

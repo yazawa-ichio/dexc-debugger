@@ -90,7 +90,71 @@ namespace Dexc.Autopilot.Dashboard
 				return Json(new JsonArray(pages.Select(name => (JsonNode)name).ToArray()));
 			});
 			app.MapGet("/api/events", Events);
+			app.MapGet("/api/decisions", () => Json(Hub.Relay.Decisions()));
+			app.MapGet("/api/journal", () => Json(Hub.Relay.Journal()));
+			app.MapPost("/api/decisions/answer", async (HttpContext context) =>
+			{
+				var body = await Body(context);
+				var by = Text(body, "by") ?? "human";
+				if (by != "human" && by != "agent")
+					return Results.BadRequest("by is human or agent");
+				try
+				{
+					var reply = Hub.Relay.Answer(Text(body, "build"), Text(body, "id"), Text(body, "answer"), by);
+					return reply["ok"]?.GetValue<bool>() == true ? Json(reply) : Results.Text(reply.ToJsonString(), "application/json", statusCode: StatusCodes.Status409Conflict);
+				}
+				catch (Exception exception) when (exception is System.IO.IOException || exception is System.Net.Sockets.SocketException)
+				{
+					return Results.Text(new JsonObject { ["ok"] = false, ["error"] = exception.Message }.ToJsonString(), "application/json", statusCode: StatusCodes.Status502BadGateway);
+				}
+			});
+			app.MapPost("/api/instructions", async (HttpContext context) =>
+			{
+				var body = await Body(context);
+				var text = Text(body, "text");
+				return string.IsNullOrWhiteSpace(text) ? Results.BadRequest("text is empty") : Json(Hub.Relay.Instruct(text, body?["builds"] as JsonArray));
+			});
+			app.MapPost("/api/agent/say", async (HttpContext context) =>
+			{
+				var text = Text(await Body(context), "text");
+				if (string.IsNullOrWhiteSpace(text))
+					return Results.BadRequest("text is empty");
+				Hub.Relay.Say(text);
+				return Results.NoContent();
+			});
+			// A POST: taking an event delivers it, and a page elsewhere must not take one away from the agent.
+			app.MapPost("/api/agent/next", async (HttpContext context, double? timeout) =>
+			{
+				var wait = TimeSpan.FromSeconds(Math.Clamp(timeout ?? AgentWaitSeconds, 0, MaximumAgentWaitSeconds));
+				try
+				{
+					var next = await Hub.Relay.Next(wait, context.RequestAborted);
+					return next == null ? Results.NoContent() : Json(next);
+				}
+				catch (OperationCanceledException)
+				{
+					return Results.NoContent();
+				}
+			});
 		}
+
+		/// <summary>Under the two minutes a shell command of an agent may take by default.</summary>
+		public const double AgentWaitSeconds = 90;
+		private const double MaximumAgentWaitSeconds = 300;
+
+		private static async Task<JsonObject> Body(HttpContext context)
+		{
+			try
+			{
+				return await JsonNode.ParseAsync(context.Request.Body) as JsonObject;
+			}
+			catch (System.Text.Json.JsonException)
+			{
+				return null;
+			}
+		}
+
+		private static string Text(JsonObject body, string name) => body?[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
 		/// <summary>One build when named, or every build by name.</summary>
 		private IResult Each(string name, Func<BuildView, JsonNode> select)

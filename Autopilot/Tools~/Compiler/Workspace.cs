@@ -100,6 +100,12 @@ namespace Dexc.Autopilot.Compiler
 
 		public string State(string build) => Path.Combine(Directory, ".state", build);
 
+		/// <summary>What the dashboard keeps: where it listens, and the journal of the questions and the instructions.</summary>
+		public string Dashboard => Path.Combine(Directory, ".state", ".dashboard");
+
+		/// <summary>Where a running dashboard says how to reach it, as {"url", "token"}.</summary>
+		public string DashboardEndpoint => Path.Combine(Dashboard, "endpoint.json");
+
 		/// <summary>Where the telemetry files of a build are gathered: Telemetry/name.</summary>
 		public string Telemetry(string build) => Path.Combine(Directory, "Telemetry", build);
 	}
@@ -398,6 +404,7 @@ namespace Dexc.Autopilot.Compiler
 	///   ws telemetry start [--watch a,b] | capture frames [--profiler] | pull | stop   [--build a,b]
 	///   ws bot [--load] [--vm ...]                                 [--build a,b]
 	///   ws eval "snippet" [--vm ...] [--keep]                      [--build a,b]
+	///   ws agent wait [--timeout 90] | answer build id answer | say text
 	/// Every build answers on a line of its own, whatever the others did.
 	/// </summary>
 	internal static class WorkspaceCommand
@@ -419,6 +426,8 @@ namespace Dexc.Autopilot.Compiler
 						return Add(arguments, options);
 					case "remove":
 						return Remove(arguments[2]);
+					case "agent":
+						return Agent(Workspace.Find(), arguments, options);
 				}
 
 				var workspace = Workspace.Find();
@@ -453,7 +462,7 @@ namespace Dexc.Autopilot.Compiler
 					case "watch":
 						return Watch(workspace, players, options, compilerPort);
 					default:
-						Console.Error.WriteLine("usage: ws init | add | remove | refs | start | stop | status | bot | eval | telemetry | watch");
+						Console.Error.WriteLine("usage: ws init | add | remove | refs | start | stop | status | bot | eval | telemetry | watch | agent");
 						return 2;
 				}
 			}
@@ -461,6 +470,61 @@ namespace Dexc.Autopilot.Compiler
 			{
 				Console.Error.WriteLine(exception.Message);
 				return 1;
+			}
+		}
+
+		/// <summary>Exit code of ws agent wait when nothing came in time.</summary>
+		public const int NothingCame = 3;
+
+		/// <summary>
+		/// The agent's side of the dashboard. wait takes the next question or instruction for the agent, as one line of JSON,
+		/// and exits with 3 when nothing came; run it again to go on waiting. answer answers a question of a bot as the
+		/// agent, and say tells the people what the agent is doing.
+		/// </summary>
+		private static int Agent(Workspace workspace, string[] arguments, Program.Options options)
+		{
+			if (!File.Exists(workspace.DashboardEndpoint))
+				throw new InvalidOperationException("The dashboard is not running. Start Dexc.Autopilot.Dashboard in the workspace.");
+			var endpoint = JsonNode.Parse(File.ReadAllText(workspace.DashboardEndpoint));
+			var verb = arguments.Length > 2 ? arguments[2] : string.Empty;
+			var seconds = double.Parse(options.Value("timeout", "90"), System.Globalization.CultureInfo.InvariantCulture);
+			using var client = new System.Net.Http.HttpClient { BaseAddress = new Uri(endpoint["url"].GetValue<string>()), Timeout = TimeSpan.FromSeconds(seconds + 30) };
+			client.DefaultRequestHeaders.Add("X-Dexc-Token", endpoint["token"].GetValue<string>());
+			System.Net.Http.HttpResponseMessage Post(string path, JsonObject body) =>
+				client.PostAsync(path, new System.Net.Http.StringContent(body?.ToJsonString() ?? "{}", System.Text.Encoding.UTF8, "application/json")).GetAwaiter().GetResult();
+			string Read(System.Net.Http.HttpResponseMessage response) => response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+			try
+			{
+				switch (verb)
+				{
+					case "wait":
+						var next = Post("api/agent/next?timeout=" + seconds.ToString(System.Globalization.CultureInfo.InvariantCulture), null);
+						if (next.StatusCode == HttpStatusCode.NoContent)
+						{
+							Console.Error.WriteLine("Nothing for the agent in " + seconds + " seconds.");
+							return NothingCame;
+						}
+
+						Console.WriteLine(Read(next));
+						return next.IsSuccessStatusCode ? 0 : 1;
+					case "answer":
+						if (arguments.Length < 6)
+							throw new InvalidOperationException("ws agent answer <build> <id> <answer>");
+						var answered = Post("api/decisions/answer", new JsonObject { ["build"] = arguments[3], ["id"] = arguments[4], ["answer"] = arguments[5], ["by"] = "agent" });
+						Console.WriteLine(Read(answered));
+						return answered.IsSuccessStatusCode ? 0 : 1;
+					case "say":
+						if (arguments.Length < 4)
+							throw new InvalidOperationException("ws agent say <text>");
+						var said = Post("api/agent/say", new JsonObject { ["text"] = arguments[3] });
+						return said.IsSuccessStatusCode ? 0 : 1;
+					default:
+						throw new InvalidOperationException("ws agent wait [--timeout 90] | answer <build> <id> <answer> | say <text>");
+				}
+			}
+			catch (System.Net.Http.HttpRequestException exception)
+			{
+				throw new InvalidOperationException("The dashboard did not answer: " + exception.Message);
 			}
 		}
 

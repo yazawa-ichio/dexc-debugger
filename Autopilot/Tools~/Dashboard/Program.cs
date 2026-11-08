@@ -13,10 +13,11 @@ namespace Dexc.Autopilot.Dashboard
 	/// <summary>
 	/// The dashboard of a workspace: the builds that ws start started, their machines, and the pages of the project.
 	///
-	///   Dexc.Autopilot.Dashboard [--port 7892] [--interval 1]
+	///   Dexc.Autopilot.Dashboard [--port 7892] [--interval 1] [--human-timeout 60]
 	///
 	/// The workspace is DEXC_WORKSPACE, or the first one from here upwards. It writes where it listens and its token to
-	/// .state/.dashboard/endpoint.json, for the tools of the agent, and prints the address to open.
+	/// .state/.dashboard/endpoint.json, for ws agent, and prints the address to open. A question of a bot goes to the
+	/// agent when nobody answered it in --human-timeout seconds.
 	/// </summary>
 	internal static class Program
 	{
@@ -29,12 +30,13 @@ namespace Dexc.Autopilot.Dashboard
 			{
 				var port = int.Parse(Option(arguments, "port", DefaultPort.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
 				var interval = TimeSpan.FromSeconds(double.Parse(Option(arguments, "interval", "1"), CultureInfo.InvariantCulture));
+				var humanTimeout = TimeSpan.FromSeconds(double.Parse(Option(arguments, "human-timeout", "60"), CultureInfo.InvariantCulture));
 				var workspace = Workspace.Find();
-				var hub = new Hub(workspace.Directory);
+				var hub = new Hub(workspace.Directory, humanTimeout);
 				var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 				await using var server = new DashboardServer(hub, port, token, Path.Combine(AppContext.BaseDirectory, "wwwroot"));
 				await server.Start();
-				var endpoint = Endpoint(workspace.Directory);
+				var endpoint = workspace.DashboardEndpoint;
 				Directory.CreateDirectory(Path.GetDirectoryName(endpoint));
 				File.WriteAllText(endpoint, new JsonObject { ["url"] = server.Url, ["token"] = token }.ToJsonString());
 				Console.WriteLine("Dashboard of " + workspace.Directory);
@@ -55,9 +57,6 @@ namespace Dexc.Autopilot.Dashboard
 				return 1;
 			}
 		}
-
-		/// <summary>Where a running dashboard says how to reach it.</summary>
-		public static string Endpoint(string workspace) => Path.Combine(workspace, ".state", ".dashboard", "endpoint.json");
 
 		private static string Option(string[] arguments, string name, string fallback)
 		{

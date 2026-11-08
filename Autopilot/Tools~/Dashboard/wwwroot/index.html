@@ -8,9 +8,25 @@
 </head>
 <body>
 <main>
+	<section id="questions" hidden>
+		<h1>Waiting questions</h1>
+		<div id="decisions" class="grid"></div>
+	</section>
 	<h1>Builds</h1>
 	<div id="builds" class="grid"></div>
 	<p id="empty" class="muted">No build in this workspace yet. Add one with ws add, and start it with ws start.</p>
+	<div class="grid" style="margin-top:16px">
+		<section class="card">
+			<h2>Tell the agent</h2>
+			<textarea id="instruction" rows="4" style="width:100%" placeholder="What the agent driving this workspace should do"></textarea>
+			<div id="targets" class="row muted"></div>
+			<div class="row"><button id="send" class="primary">Send</button><span id="sent" class="muted"></span></div>
+		</section>
+		<section class="card">
+			<h2>Journal</h2>
+			<pre id="journal" class="log"></pre>
+		</section>
+	</div>
 </main>
 <script src="/dexc.js"></script>
 <script>
@@ -48,8 +64,97 @@
 		document.getElementById("empty").hidden = true;
 	}
 
+	let decisions = [];
+	const journal = [];
+
+	function question(decision) {
+		const stage = decision.stage === "agent" ? element("span", { class: "badge danger" }, "with the agent")
+			: element("span", { class: "badge countdown", "data-until": decision.agentFrom }, countdown(decision.agentFrom));
+		const answer = async value => {
+			try {
+				await Dexc.post("/api/decisions/answer", { build: decision.build, id: decision.id, answer: value, by: "human" });
+			} catch (error) {
+				alert(error.message);
+			}
+			refresh();
+		};
+		const input = element("input", { placeholder: "answer" });
+		return element("div", { class: "card" },
+			element("div", { class: "row" }, element("h2", {}, decision.build), element("span", { class: "muted" }, (decision.machine || "-") + " > " + (decision.state || "-")), stage),
+			element("p", {}, decision.question),
+			decision.choices.length
+				? element("div", { class: "row" }, decision.choices.map(choice => element("button", { onclick: () => answer(choice) }, choice)))
+				: element("div", { class: "row" }, input, element("button", { class: "primary", onclick: () => answer(input.value) }, "Answer")));
+	}
+
+	function countdown(until) {
+		return "to the agent in " + Math.max(0, Math.round((new Date(until) - Date.now()) / 1000)) + "s";
+	}
+
+	function tick() {
+		for (const badge of document.querySelectorAll(".countdown")) badge.textContent = countdown(badge.dataset.until);
+	}
+
+	function showDecisions() {
+		document.getElementById("questions").hidden = decisions.length === 0;
+		document.getElementById("decisions").replaceChildren(...decisions.map(question));
+	}
+
+	async function refresh() {
+		decisions = await Dexc.get("/api/decisions");
+		showDecisions();
+	}
+
+	function line(entry) {
+		const detail = entry.detail || {};
+		const time = new Date(entry.time).toLocaleTimeString();
+		const what = detail.kind === "decision" ? detail.build + " " + detail.id + ": " + detail.question + (detail.answer ? " = " + detail.answer + " (" + detail.answeredBy + ")" : "")
+			: detail.kind === "instruction" ? detail.id + ": " + detail.text
+			: detail.kind === "say" ? detail.text
+			: [detail.kind, detail.id, detail.build].filter(Boolean).join(" ");
+		return time + "  " + entry.event + "  " + what;
+	}
+
+	function showJournal() {
+		document.getElementById("journal").textContent = journal.slice(-100).reverse().map(line).join("\n");
+	}
+
+	function target(name) {
+		const container = document.getElementById("targets");
+		if (container.querySelector("[value='" + CSS.escape(name) + "']")) return;
+		if (!container.childElementCount) container.append(element("span", {}, "Builds (none for all):"));
+		container.append(element("label", {}, element("input", { type: "checkbox", value: name }), " " + name));
+	}
+
+	document.getElementById("send").addEventListener("click", async () => {
+		const text = document.getElementById("instruction").value.trim();
+		if (!text) return;
+		const builds = [...document.querySelectorAll("#targets input:checked")].map(box => box.value);
+		try {
+			const sent = await Dexc.post("/api/instructions", { text, builds });
+			document.getElementById("instruction").value = "";
+			document.getElementById("sent").textContent = "queued " + sent.id;
+		} catch (error) {
+			document.getElementById("sent").textContent = error.message;
+		}
+	});
+
 	Dexc.nav();
-	Dexc.on("build", show);
+	Dexc.on("build", build => {
+		show(build);
+		target(build.name);
+	});
+	Dexc.on("journal", entry => {
+		journal.push(entry);
+		showJournal();
+		refresh();
+	});
+	Dexc.get("/api/journal").then(entries => {
+		journal.unshift(...entries);
+		showJournal();
+	});
+	refresh();
+	setInterval(tick, 1000);
 </script>
 </body>
 </html>
