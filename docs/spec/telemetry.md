@@ -266,7 +266,8 @@ DexcTelemetry.StopCapture();
 - フォルダーが`MaximumDirectoryBytes`（既定64MiB）を超えると、書き込み中のものを除き、古い`.otlp`とキャプチャの`capture-*.raw`から消す。問題の直前の記録を残すためである。実行の開始時とファイルの切り替え時に確認する
 - Metricsの書き出しの間隔は既定60秒である。Metricsは区間の集計なので、メモリの量は間隔に関係しない。データの無い計器は書かず、すべて無ければフレームも書かない
 - フレームの処理はPlayerLoopの`Initialization`の最後で行う。前のフレームの記録とUnityの計測値がそろった後であり、処理自体は次のフレームのProfilerのフレームに入る。Play Modeのときだけ登録し、`Stop`で外す
-- `OnApplicationPause`と`OnApplicationQuit`でも書く
+- `OnApplicationPause`では書き込みのスレッドへ渡すだけで、何も待たない。`OnApplicationQuit`では書き終わりとディスクへの確定を待つ
+- テレメトリーはクラッシュレポートではない。中断したアプリをOSが終わらせたときに、まだ書けていない分は失ってよい。中断のたびにゲームを止めないことを優先する
 - 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない
 - Resourceは次の層を順に重ね、同じキーは後の層が勝つ。最後の2つは変えられない
   1. Unityが知るもの：`service.name`（`ServiceName`か`Application.productName`）、`service.version`（`ServiceVersion`か`Application.version`）、`device.model.identifier`（`SystemInfo.deviceModel`）、`os.description`（`SystemInfo.operatingSystem`）
@@ -291,8 +292,8 @@ DexcTelemetry.StopCapture();
 
 - ファイルへの書き込みは、専用のスレッド1本で行う。main threadはフレームを組み立て、使い回す領域へ写して列に入れるだけで、ストレージを待たない。書き込み、OSへの受け渡し、ファイルの切り替え、`.otlp`への名前の変更、ディスクへの確定を、受けた順に行う。WebGLはスレッドが無いので、その場で書く
 - 書き込みを待つ量は`MaximumPendingBytes`（既定4MiB）までにする。超えたフレームは捨てて`dexc.telemetry.frames.dropped`で数え、メモリを増やさない。`WhenWritingFallsBehind`を`Wait`にすると、main threadが空きを`BacklogWaitSeconds`（既定1秒）まで待ち、空かなければ捨てる。検証用のビルドのためで、ストレージが止まるとゲームも止まる。main threadが自分で書かないのは、書き込みのスレッドが同じファイルに先のフレームを書いていて、フレームの順序が崩れるためである。写す先の領域も、同じ量まで使い回すので、毎回は確保しない。待つものが無ければ、上限より大きいフレームも1つは通す
-- 書き終わりを待つのは、明示の`Flush`、`Seal`、`Stop`、アプリの中断のときだけで、最長5秒である。定期の書き出しは待たない。スレッドで起きた書き込みの失敗は、次のフレームでmain threadが受け取り、出力をやめる
-- スレッドはフレームを書くたびにOSへ渡す（`Stream.Flush()`）。プロセスが落ちても、渡したフレームは残る。ディスクへの確定（`Flush(true)`）は、アプリの中断と終了のときだけにする。毎回の確定は端末で重いためである
+- 書き終わりを待つのは、明示の`Flush`、`Seal`、`Stop`のときだけで、最長5秒である。定期の書き出しは待たない。スレッドで起きた書き込みの失敗は、次のフレームでmain threadが受け取り、出力をやめる
+- スレッドはフレームを書くたびにOSへ渡す（`Stream.Flush()`）。プロセスが落ちても、渡したフレームは残る。ディスクへの確定（`Flush(true)`）は、終了のときだけにする。毎回の確定は端末で重いためである
 - ログのSDKの1秒より長い5秒にするのは、送り先がネットワークでなくファイルで、区切るほどフレームごとのResourceとScopeが増えるためである
 - .NET 10の実測（毎秒ログ100件、span 50個を10分）で、区切りが1秒ならフレームごとのResourceとScopeが大きさの3.8%、5秒なら0.8%だった。CPUの時間はどれもゲームの1秒あたり約0.15msで差は無い。この量では64KBに9秒ほどで達するので、15秒以上は効かない。OSへ渡すのは1フレーム0〜12µs、ディスクへの確定は0.6〜0.9msだった
 
@@ -316,7 +317,7 @@ DexcTelemetry.StopCapture();
 |---|---|---|
 | 要求 | 同じファイルの続いたフレームの本体を連結して1つの要求にする。protobufでは連結が繰り返しの欄の結合になるので、組み立て直さずに有効な`Export*ServiceRequest`になる | Collector 0.164.0で受け付けを確かめた |
 | 大きさ | 1要求1MiBまで（設定で変える）。1フレームが超えればそれだけで送る | OTLPの推奨の上限64MiB、confighttpの既定20MiB。Collectorの束ねの8192件に近い |
-| 時期 | 60秒ごと、ファイルを閉じたとき、アプリの中断のとき（待たない） | metricsの書き出し間隔と同じ |
+| 時期 | 60秒ごとと、`Seal`でファイルを閉じたとき。閉じたファイルの残りは続けて送る。書きかけのファイルの末尾は、1要求の大きさに満たなければ次の時期まで待つ。アプリの中断のときは送らない | metricsの書き出し間隔と同じ |
 | 同時の数 | Playerは1つ | exporterhelperは10 |
 | 圧縮 | 既定は速さ優先のgzip（`CompressionLevel.Fastest`）。無しにもできる。.NET 10の実測で、1MiBのlogsは12%（3.6ms）、tracesは42%（9.3ms）に縮んだ。大きさ優先は4〜5倍遅く、縮みは3割ほどしか増えない | 受ける側はgzipに必ず対応し、送る側は任意。SDKの既定は無し。端末の通信量を優先して既定を変える |
 | 待ち時間 | 1要求30秒 | SDKの書き出しの待ち30秒 |
@@ -330,7 +331,7 @@ DexcTelemetry.StopCapture();
 - 1つのビルドではPushかPullのどちらかにする。どちらも受け渡した後にファイルを消すためである
 - APIは`DexcTelemetry.StartUpload(TelemetryUploadOptions)`、`StopUpload`、`IsUploading`。動いているテレメトリーにだけ付き、`Stop`で止まる。送る時期のうち「ファイルを閉じたとき」は`Seal`である。大きさで次のファイルへ移ったときは、次の60秒で送る
 - 送る対象は、閉じたファイル（前の実行のものを含む）と、このPlayerが書いている途中のファイルの最後の完全なフレームまで。ほかのPlayerが書いている途中のファイルは送らない
-- `.sent`は閉じた後の名前（`<name>.otlp.sent`）で持ち、名前が変わっても続く。フォルダーの上限で消えたファイルの`.sent`は消す。答えを待たずに中断で終わった分は次に送り直すので、同じ分が二度届くことがある（少なくとも1回）
+- `.sent`は閉じた後の名前（`<name>.otlp.sent`）で持ち、名前が変わっても続く。フォルダーの上限で消えたファイルの`.sent`は消す。答えを受ける前にアプリが終わった分は次に送り直すので、同じ分が二度届くことがある（少なくとも1回）
 - 自分の数値: `dexc.telemetry.upload.size`（送った圧縮後のバイト数）、`.dropped`（捨てたフレーム）、`.rejected`（部分的な成功で拒否された件数）、`.retries`
 - 送信には`UnityWebRequest`を使う。パッケージは`com.unity.modules.unitywebrequest`に依存する。HTTPの宛先は、プロジェクトの「Allow downloads over HTTP」の設定に従う。127.0.0.1へは、EditorとWindowsのIL2CPPのPlayer（非development、設定は既定の「許可しない」）で届いた（2026-11-09）。AndroidとiOS、127.0.0.1以外のhttpの宛先は確かめていない
 - 要求ごとの小さな確保（`UnityWebRequest`と処理の型、答えの本文）は避けられない。普段は60秒ごとに数回の要求で済む。溜まった分を続けて送る間は、要求ごとに確保が起きる

@@ -164,11 +164,13 @@ namespace Dexc.Telemetry
 			m_Uploader = null;
 		}
 
-		/// <summary>The application is paused: what is written goes to the disk, and the sending starts without waiting.</summary>
+		/// <summary>
+		/// The application is paused: what is recorded goes to the writing thread, and nothing waits for it. Telemetry is not
+		/// a crash report, so what an operating system that ends the paused application takes with it is let go.
+		/// </summary>
 		internal void Pause()
 		{
-			Persist();
-			m_Uploader?.Pause();
+			Flush();
 		}
 
 		void OnPlayerLoop()
@@ -307,7 +309,7 @@ namespace Dexc.Telemetry
 			m_Uploader?.Kick();
 		}
 
-		/// <summary>Writes everything and has it reach the disk: the application may not come back.</summary>
+		/// <summary>Writes everything and has it reach the disk, at the end of the output.</summary>
 		internal void Persist()
 		{
 			Flush();

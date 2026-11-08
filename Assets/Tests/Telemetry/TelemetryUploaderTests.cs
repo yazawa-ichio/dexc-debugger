@@ -232,6 +232,37 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[UnityTest]
+		public IEnumerator TheEndOfAnOpenFileWaitsForTheNextRoundUnlessItFillsARequest()
+		{
+			var files = new TelemetryFileSet(m_Directory, "run", 100000, 1000000);
+			var time = 0d;
+			var uploader = new TelemetryUploader(Options(20), files, new TelemetryMetrics(), time);
+			var frames = files.Open("traces");
+			try
+			{
+				frames.WriteFrame(Bodies((1, 15)), 15);
+				frames.WriteFrame(Bodies((2, 15)), 15);
+				frames.WriteFrame(Bodies((3, 15)), 15);
+				Assert.That(files.Writing.Wait(s_Wait), Is.True);
+				yield return Until(uploader, () => !uploader.IsBusy && Requests().Count == 2, () => time += 0.1);
+				var stop = time + 3;
+				yield return Until(uploader, () => time >= stop, () => time += 0.1);
+				Assert.That(Requests().Count, Is.EqualTo(2), "the last frame does not fill a request: it waits");
+
+				time += 60;
+				yield return Until(uploader, () => !uploader.IsBusy && Requests().Count == 3, () => time += 0.1);
+			}
+			finally
+			{
+				frames?.Dispose();
+				uploader.Dispose();
+				files.Writing.Stop(s_Wait);
+			}
+
+			Assert.That(Requests().Select(request => request.Body), Is.EqualTo(new[] { Bodies((1, 15)), Bodies((2, 15)), Bodies((3, 15)) }));
+		}
+
+		[UnityTest]
 		public IEnumerator UnavailableIsSentAgainAfterRetryAfter()
 		{
 			Frames("metrics-a.otlp", 10);

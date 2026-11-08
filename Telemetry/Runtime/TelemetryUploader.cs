@@ -37,6 +37,9 @@ namespace Dexc.Telemetry
 			internal byte[] Payload;
 			internal int PayloadLength;
 			internal bool Compressed;
+
+			/// <summary>More whole frames follow than this request could take.</summary>
+			internal bool Full;
 		}
 
 		readonly TelemetryUploadOptions m_Options;
@@ -88,31 +91,6 @@ namespace Dexc.Telemetry
 			m_Kicked = true;
 		}
 
-		/// <summary>
-		/// The application may not come back: when nothing is under way, reads the next frames here and sends them without
-		/// waiting for the answer. What does not get through is sent again later, from the .sent.
-		/// </summary>
-		internal void Pause()
-		{
-			if (m_Request != null || m_Preparing != null || m_RetryAt >= 0)
-			{
-				return;
-			}
-			try
-			{
-				m_Chunk = Step(TakeSettled(), m_Limit);
-			}
-			catch (IOException exception)
-			{
-				Debug.LogWarning("Dexc Telemetry: " + exception.Message);
-				return;
-			}
-			if (m_Chunk != null)
-			{
-				Send();
-			}
-		}
-
 		/// <summary>Moves the sending on. Once a frame, cheap when there is nothing to look at.</summary>
 		internal void Update(double now)
 		{
@@ -160,11 +138,16 @@ namespace Dexc.Telemetry
 			if (now >= m_NextRound || m_Kicked)
 			{
 				m_Kicked = false;
-				Prepare();
+				Prepare(false);
 			}
 		}
 
-		void Prepare()
+		/// <param name="continuing">
+		/// Goes on with a round after a request: what is left of closed files goes at once, but the end of a file being written
+		/// waits for the next round unless it fills a whole request. Without that, a game writing fast would send a request
+		/// for every frame it writes.
+		/// </param>
+		void Prepare(bool continuing)
 		{
 			var settled = TakeSettled();
 			var limit = m_Limit;
@@ -172,14 +155,14 @@ namespace Dexc.Telemetry
 			// No threads.
 			try
 			{
-				m_Preparing = Task.FromResult(Step(settled, limit));
+				m_Preparing = Task.FromResult(Step(settled, limit, continuing));
 			}
 			catch (IOException exception)
 			{
 				m_Preparing = Task.FromException<Chunk>(exception);
 			}
 #else
-			m_Preparing = Task.Run(() => Step(settled, limit));
+			m_Preparing = Task.Run(() => Step(settled, limit, continuing));
 #endif
 		}
 
@@ -252,7 +235,7 @@ namespace Dexc.Telemetry
 					// Half the frames, from the same place: the .sent has not moved.
 					m_Chunk = null;
 					m_Limit = Math.Max(1, chunk.BodyBytes / 2);
-					Prepare();
+					Prepare(false);
 					return;
 				}
 				m_Dropped.Add(chunk.Frames, TelemetryDetail.Basic);
@@ -287,7 +270,7 @@ namespace Dexc.Telemetry
 			m_SettledPath = chunk.Path;
 			m_SettledOffset = chunk.Offset + chunk.Consumed;
 			Reset();
-			Prepare();
+			Prepare(true);
 		}
 
 		void Reset()
@@ -303,7 +286,7 @@ namespace Dexc.Telemetry
 		/// oldest first. Closed files of any run, and the open files of this run up to their last whole frame. The open files
 		/// of another Player are its own to send.
 		/// </summary>
-		Chunk Step((string Path, long Offset)? settled, int limit)
+		Chunk Step((string Path, long Offset)? settled, int limit, bool continuing)
 		{
 			if (settled.HasValue)
 			{
@@ -325,7 +308,7 @@ namespace Dexc.Telemetry
 					continue;
 				}
 				var chunk = Read(file.Path, offset, limit);
-				if (chunk != null)
+				if (chunk != null && (!continuing || !file.Open || chunk.Full))
 				{
 					return chunk;
 				}
@@ -425,13 +408,19 @@ namespace Dexc.Telemetry
 				var position = offset;
 				var body = 0;
 				var frames = 0;
+				var full = false;
 				stream.Position = offset;
 				while (position + m_Header.Length <= length && stream.Read(m_Header, 0, m_Header.Length) == m_Header.Length)
 				{
 					var size = (m_Header[0] << 24) | (m_Header[1] << 16) | (m_Header[2] << 8) | m_Header[3];
-					if (size < 0 || position + m_Header.Length + size > length || (frames > 0 && body + size > limit))
+					if (size < 0 || position + m_Header.Length + size > length)
 					{
-						// Not whole yet, or the next request's.
+						// Not whole yet.
+						break;
+					}
+					if (frames > 0 && body + size > limit)
+					{
+						full = true;
 						break;
 					}
 					if (body + size > m_Body.Length)
@@ -458,6 +447,7 @@ namespace Dexc.Telemetry
 					Consumed = position - offset,
 					Frames = frames,
 					BodyBytes = body,
+					Full = full,
 				};
 				Compress(chunk);
 				return chunk;
