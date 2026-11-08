@@ -309,7 +309,7 @@ DexcTelemetry.StopCapture();
 | 圧縮 | 既定は速さ優先のgzip（`CompressionLevel.Fastest`）。無しにもできる。.NET 10の実測で、1MiBのlogsは12%（3.6ms）、tracesは42%（9.3ms）に縮んだ。大きさ優先は4〜5倍遅く、縮みは3割ほどしか増えない | 受ける側はgzipに必ず対応し、送る側は任意。SDKの既定は無し。端末の通信量を優先して既定を変える |
 | 待ち時間 | 1要求30秒 | SDKの書き出しの待ち30秒 |
 | 再送 | 429、502、503、504と通信の失敗。`Retry-After`に従い、無ければ5秒から1.5倍、最大30秒、ばらつき付き。300秒で諦めても、ファイルは残して次の時期に試す | OTLPの仕様、exporterhelperの既定 |
-| 再送しない | 400などほかの4xxと5xxは、その分を捨てて数える。413は要求を半分に分けて送り直し、1フレームでも413なら捨てる。部分的な成功は拒否の数を数えて再送しない | OTLPの仕様。413の分け方はこちらの判断 |
+| 再送しない | 400などほかの4xxと5xxは、その分を捨てて数える。413は要求を半分に分けて送り直し、1フレームでも413なら捨てる。400でも、Statusのメッセージに`too large`があれば413と同じに扱う。部分的な成功は拒否の数を数えて再送しない | OTLPの仕様。413の分け方はこちらの判断。Collector 0.164.0は上限を超えた本文に413でなく400と`http: request body too large`を返した（2026-11-09に確かめた） |
 | 位置 | 送り終えた位置をファイルごとに`.sent`に残し、再起動しても二重に送らない。閉じて全部送ったファイルは両方消す | |
 | 費用 | 送信用の1MiBの領域を最初に1回確保して使い回す。ファイルの読み込みとgzipは別スレッド、UnityのAPIはmain threadだけ | |
 
@@ -329,6 +329,15 @@ DexcTelemetry.StopCapture();
 | `captures`、`cut` | キャプチャの区間の一覧を出し、同じ形式のファイルに切り出す |
 
 JSONへの変換は持たない。読むなら`dump`、外部の道具ならcollectorの出力（`fileexporter`など）を使う。
+
+```sh
+dotnet run --project Telemetry/Tools~/Cli -c Release -- dump <folder>
+dotnet run --project Telemetry/Tools~/Cli -c Release -- send <folder> --endpoint http://127.0.0.1:4318
+```
+
+- `.proto`は`Telemetry/Tools~/proto/`に、`upstream.json`の版のものをそのまま置く（Apache License 2.0）。`Google.Protobuf`と`Grpc.Tools`でコードを生成する
+- `send`はファイルの状態を残さない。同じファイルを二度送れば二度届く
+- `cut`は、キャプチャのtraceのspanと、その間に始まったspan、その間のlogs、区間が重なるmetricsのフレームを、`<signal>-<run>-capture<n>.otlp`に書く
 
 ## IL処理
 

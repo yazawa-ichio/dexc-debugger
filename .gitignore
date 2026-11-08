@@ -7,6 +7,12 @@ UserSettings/
 *.sln
 *.slnx
 *.csproj
+!Telemetry/Tools~/**/*.csproj
+Telemetry/Tools~/**/bin/
+Telemetry/Tools~/**/obj/
+# The logs messages of opentelemetry-proto, which the Logs/ above would take for Unity logs.
+!Telemetry/Tools~/proto/opentelemetry/proto/logs/
+!Telemetry/Tools~/proto/opentelemetry/proto/collector/logs/
 /obj/
 
 # IDE
