@@ -204,6 +204,41 @@ Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルド
 - `ws start`は`-dexc-telemetry-directory .state/<name>/telemetry`と、`-dexc-telemetry-resource`で`dexc.build`、`vcs.ref.head.revision`、`dexc.seed`を渡す。同じ製品のビルドは`persistentDataPath`を共有するので、フォルダーを分ける
 - `ws telemetry start|capture|pull|stop`は、evalで`DexcTelemetry`を呼ぶ。`pull`は`Seal`の後、閉じたファイル（`.otlp`と`capture-*.raw`）を`Telemetry/<name>`へ移す。テレメトリーのPullの規格に従う
 - link.xmlは、ビルドに`Dexc.Telemetry`があれば丸ごと残す。evalからだけ呼ぶAPIがストリップされないためである
+- `ws telemetry start --upload`は、ダッシュボードが動いているときに、書き出しと送信を5秒ごとにして、`DexcTelemetry.StartUpload`でダッシュボードへ送らせる
+
+### ダッシュボード
+
+`Autopilot/Tools~/Dashboard`の.NET 10の実行ファイルとする。`ws`のコマンドに含めないのは、Compilerの起動を軽く保ち、ASP.NET CoreとprotobufをCompilerに持ち込まないためである。ワークスペースの読み方はCompilerのコードを使う。
+
+| 層 | 責務 |
+| --- | --- |
+| データ | 各Playerの`status`を間隔ごとに取り、`loadCount`が変わったら`graph`を取る。質問と指示の列、OTLPの受け取り |
+| View | 組み込みのページと、ワークスペースの`Dashboard/`のページ。データの層とはHTTPのAPIとSSEだけでつながる |
+
+- Playerを起動しない。`ws start`で起動したビルドを見る
+- 1つのビルドへの要求は1つずつ行い、前の要求が終わるまで次を出さない
+- 待ち受けは127.0.0.1だけにする。Hostが`127.0.0.1`か`localhost`でない要求は421で断る。DNS rebindingで、ほかのサイトから届かないようにするためである
+- 起動ごとにトークンを作り、変更を伴う要求（GETとHEAD以外）には`X-Dexc-Token`を求める。ほかのサイトからのPOSTで、エージェントへ指示を押し込めないようにするためである。トークンとアドレスは`.state/.dashboard/endpoint.json`に書き、終了時に消す
+- 例外はOTLPの`/v1/`とする。Playerはダッシュボードの起動し直しをまたいで送り続け、そのたびにトークンが変わるためである。ここに届きうるのは数値であって、指示ではない
+- evalはAPIに出さない
+
+### 質問の中継
+
+1. `status`の`decisions`に新しい質問が現れたら、人へ出す。同じidでも質問の文が違えば、別の質問とする（Playerを起動し直すと、idは`d1`から数え直すため）
+2. `--human-timeout`（既定60秒）を過ぎたら、エージェントの列へ入れる
+3. 答えはPlayerの`answer`で送り、Playerが受けたら答えたものとする。`status`から答えなしで消えた質問は、取り下げとする
+4. エージェントの列から取り出すときに、答えたものと取り下げたものは飛ばす
+
+- エージェントへはロングポールで渡す（`POST /api/agent/next?timeout=`、既定90秒、上限300秒）。取り出しで1件が渡るので、POSTにしてトークンを求める
+- MCPのelicitationは、サーバーからクライアントの利用者へ聞く仕組みで、エージェントへ指示を流す用途に合わない。Claude CodeのChannelsはresearch previewのため使わない。必要になれば、このAPIの上に足す
+- 経緯（質問、回した、渡した、答えた、取り下げた、指示、エージェントの発言）は`.state/.dashboard/journal.jsonl`に追記し、起動時に直近200件を読む
+
+### 性能の受け取り
+
+- `POST /v1/metrics|traces|logs`でOTLP/HTTPのprotobufを受ける。gzipにも対応する。`.proto`は`Telemetry/Tools~/proto`のものを使う
+- Resourceの`dexc.build`でビルドに分け、無ければ`service.name`を使う。指標は名前と属性ごとに2000点、spanとlogsは500件までメモリに持つ
+- ヒストグラムは、1回の書き出しの平均（`sum / count`）と`max`で描く
+- `--forward`があれば、受けた本文をそのまま送る。失敗しても受け取りは成り立たせ、標準エラーに書く
 
 ## ガードレール
 

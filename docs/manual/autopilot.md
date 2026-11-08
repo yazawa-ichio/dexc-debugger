@@ -252,6 +252,7 @@ Dexc.Autopilot.Compiler ws eval "MyGame.Instance.Score"
 | `ws eval "<snippet>"` | 動いている全ビルドでスニペットを実行します |
 | `ws watch` | 保存を検知して読み込みます。`Common`の保存は全ビルドへ、`Builds/<name>`の保存はそのビルドへ送ります |
 | `ws telemetry <command>` | 各ビルドのDexc Telemetryを操作します。[テレメトリー](#テレメトリー)を参照してください |
+| `ws agent <command>` | ダッシュボードの、エージェントの側です。[ダッシュボード](#ダッシュボード)を参照してください |
 
 `--build a,b`で対象のビルドを絞れます。`workspace.json`のある場所の外から使うときは、`DEXC_WORKSPACE`で指定します。
 
@@ -261,8 +262,9 @@ Dexc.Autopilot.Compiler ws eval "MyGame.Instance.Score"
 workspace.json
 Common/              全ビルドで共通のBot
 Builds/fix-1234/     そのビルド専用のBot
-.state/              参照、トークン、ポート、ログ、テレメトリーの書きかけ
+.state/              参照、トークン、ポート、ログ、テレメトリーの書きかけ、ダッシュボードの経緯
 Telemetry/fix-1234/  集めたテレメトリーのファイル
+Dashboard/           プロジェクトのページ
 ```
 
 ### テレメトリー
@@ -278,7 +280,7 @@ Dexc.Autopilot.Compiler ws telemetry pull
 
 | コマンド | 内容 |
 | --- | --- |
-| `ws telemetry start` | 動いていなければ`DexcTelemetry.Start()`を呼びます。`--watch a,b`で`DexcTelemetry.Watch`も呼びます |
+| `ws telemetry start` | 動いていなければ`DexcTelemetry.Start()`を呼びます。`--watch a,b`で`DexcTelemetry.Watch`も呼びます。`--upload`で、5秒ごとにダッシュボードへ送らせます |
 | `ws telemetry capture <frames>` | 全ビルドで同時にキャプチャを始めます。`--profiler`で、Development BuildならUnity Profilerの`.raw`も書きます |
 | `ws telemetry pull` | `DexcTelemetry.Seal()`で今のファイルを閉じさせ、閉じたファイルを`Telemetry/<name>`へ移します |
 | `ws telemetry stop` | `DexcTelemetry.Stop()`を呼び、ファイルを移します |
@@ -287,6 +289,81 @@ Dexc.Autopilot.Compiler ws telemetry pull
 - 止まったPlayerの`pull`は、閉じたファイルだけを移します
 - 集めたファイルは、`Telemetry/Tools~/Cli`の`dump`、`captures`、`cut`、`send`で読み、送ります
 - `capture`のフレーム数は、オプションより前に書きます
+
+### ダッシュボード
+
+ワークスペースのビルドを、ブラウザーで見ます。ビルドの状態、マシンの図、性能のグラフ、Botの質問、エージェントへの指示を扱います。
+
+```sh
+cd D:/work/stealth
+dotnet run --project <repo>/Autopilot/Tools~/Dashboard -c Release
+```
+
+表示されるアドレス（`http://127.0.0.1:7892/?token=...`）を開きます。トークンはダッシュボードを起動するたびに変わります。
+
+| オプション | 内容 | 既定 |
+| --- | --- | --- |
+| `--port` | 待ち受けのポート | `7892` |
+| `--interval` | 各Playerの`status`を取る間隔（秒） | `1` |
+| `--human-timeout` | Botの質問を人が答えずにいたら、エージェントへ回すまでの秒数 | `60` |
+| `--forward` | 受けたOTLPを、そのまま送る先（collectorや`grafana/otel-lgtm`） | なし |
+
+ページは次のとおりです。
+
+| ページ | 内容 |
+| --- | --- |
+| Builds | ビルドごとの状態、`log`、`failure`。答えを待つ質問、エージェントへの指示、経緯 |
+| Machines | マシンの状態と遷移の図。今の状態を塗り、割り込まれたマシンが戻る状態を枠で示します |
+| Performance | `ws telemetry start --upload`で送らせた指標の線グラフ。ビルドを色で分けます |
+
+#### Botの質問
+
+Botは`context.Ask`で、見ている人に聞きます。待たずに返るので、`Enter`で聞いてStateのBlackboardに持ち、`Step`や`Goto`で答えを見ます。
+
+```csharp
+machine.State("Fork")
+	.Enter(context => context.State.Set("way", context.Ask("Which way?", "left", "right")))
+	.Goto("Left", context => ((AutopilotDecision)context.State.Get("way")).Answer == "left");
+```
+
+- 人が`--human-timeout`の間に答えなければ、エージェントへ回ります
+- 聞いた状態を出ると、質問は取り下げられます
+- 答えを待ちすぎたときにどうするかは、Botが`Elapsed`を見て決めます
+
+#### エージェントの側
+
+ワークスペースを操作するエージェントは、`ws agent wait`を繰り返して、回ってきた質問と人からの指示を1つずつ受けます。
+
+```sh
+Dexc.Autopilot.Compiler ws agent wait              # 次の1件をJSONで出します。90秒で何も無ければ終了コード3
+Dexc.Autopilot.Compiler ws agent answer a d1 left  # ビルドaの質問d1に、エージェントとして答えます
+Dexc.Autopilot.Compiler ws agent say "stage 2 を試します"
+```
+
+- `wait`の1件は、`kind`が`decision`（質問）か`instruction`（指示）です。指示の`builds`が空なら、全ビルドへの指示です
+- 1件は1回だけ渡ります。`--timeout`で待つ秒数を変えられます。既定の90秒は、エージェントのシェルの既定の時間切れ（2分）に収まる長さです
+- 経緯は`.state/.dashboard/journal.jsonl`に残ります
+
+#### プロジェクトのページ
+
+ワークスペースの`Dashboard/`に置いたHTMLは、`/project/`で配られ、上のバーに並びます。エージェントが、プロジェクトに合わせたページを足せます。データは`StatusRequested`で足した項目と、テレメトリーの指標から取ります。
+
+```html
+<link rel="stylesheet" href="/style.css">
+<script src="/dexc.js"></script>
+<script>
+	Dexc.nav();
+	Dexc.on("build", build => { /* build.status にゲームが足した項目がある */ });
+</script>
+```
+
+| API | 内容 |
+| --- | --- |
+| `GET /api/builds`、`/api/status`、`/api/graph`、`/api/history` | ビルドの一覧、`status`、マシンの図、直近の状態の移り変わり。`?build=`で1つに絞ります |
+| `GET /api/perf/builds`、`/api/perf/metrics`、`/api/perf/points`、`/api/perf/spans`、`/api/perf/logs` | 受けたテレメトリー。`points`は`?build=&name=&since=` |
+| `GET /api/decisions`、`/api/journal` | 答えを待つ質問、経緯 |
+| `GET /api/events` | SSE。`build`、`graph`、`perf`、`journal` |
+| `POST /api/decisions/answer`、`/api/instructions` | 答える、指示を送る。`Dexc.post`がトークンを付けます |
 
 ### 共通のBotと専用のBot
 
