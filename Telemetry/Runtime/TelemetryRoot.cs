@@ -72,6 +72,7 @@ namespace Dexc.Telemetry
 		{
 			m_Files = files;
 			m_RestartsInterval = false;
+			m_Capture.BeginRun();
 			Metrics.SetResource(resource);
 			Metrics.Detail = options.Detail;
 			Logs.DefaultLevel = options.MinimumSeverity;

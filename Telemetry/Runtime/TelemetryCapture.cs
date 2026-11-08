@@ -40,6 +40,12 @@ namespace Dexc.Telemetry
 
 		internal bool IsCapturing => IsPending || IsActive;
 
+		/// <summary>Numbers the captures of a new run from one.</summary>
+		internal void BeginRun()
+		{
+			m_Count = 0;
+		}
+
 		internal void Request(int frames, TelemetryDetail detail, bool unityProfiler)
 		{
 			m_Requested = frames;
