@@ -28,6 +28,9 @@ namespace Dexc.Telemetry
 		/// <summary>What the game is doing now, by which the metrics of each frame are split.</summary>
 		internal TelemetryAnnotations Annotations { get; } = new TelemetryAnnotations();
 
+		/// <summary>The loads open now. While there are any, the frames of Unity are loading frames.</summary>
+		internal int LoadsInProgress { get; set; }
+
 		/// <summary>The finest level recorded. Set below what the symbols keep, it silences calls that are compiled in.</summary>
 		internal TelemetryDetail Detail { get; set; } = TelemetryDetail.Detailed;
 

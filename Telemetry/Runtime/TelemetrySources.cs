@@ -35,6 +35,8 @@ namespace Dexc.Telemetry
 		TelemetryHistogram m_MainThreadTimeNow;
 		TelemetryHistogram m_FrameAllocatedNow;
 		int m_AnnotationVersion = -1;
+		readonly TelemetryMetrics m_Metrics;
+		readonly TelemetryCounter m_LoadFrames;
 		readonly TelemetryCounter m_Collections;
 		readonly TelemetryHistogram m_SourceTime;
 		readonly TelemetryHistogram m_ExportTime;
@@ -45,7 +47,9 @@ namespace Dexc.Telemetry
 
 		internal TelemetrySources(TelemetryMetrics metrics)
 		{
+			m_Metrics = metrics;
 			m_Annotations = metrics.Annotations;
+			m_LoadFrames = metrics.Counter("dexc.load.frames", "{frame}");
 			var frameBounds = new[] { 4, 8, 11.2, 16.7, 20, 25, 33.4, 50, 66.7, 100, 250, 1000 };
 			var costBounds = new[] { 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10 };
 			m_FrameTime = metrics.Histogram("unity.frame.time", "ms", frameBounds);
@@ -73,6 +77,13 @@ namespace Dexc.Telemetry
 		internal void OnFrame(double deltaSeconds)
 		{
 			var started = Stopwatch.GetTimestamp();
+			if (m_Metrics.LoadsInProgress > 0)
+			{
+				// A loading frame says how long the load takes, not how the game runs: the load has its own measure.
+				m_LoadFrames.Add(1, TelemetryDetail.Basic);
+				m_SourceTime.Record(Elapsed(started), TelemetryDetail.Standard);
+				return;
+			}
 			if (m_AnnotationVersion != m_Annotations.Version)
 			{
 				// The series of what the game is doing now. Looked up only when that changes.

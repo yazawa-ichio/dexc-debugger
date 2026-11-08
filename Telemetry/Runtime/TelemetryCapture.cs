@@ -9,7 +9,7 @@ namespace Dexc.Telemetry
 	/// </summary>
 	internal sealed class TelemetryCapture
 	{
-		const string TracerName = "Dexc.Telemetry";
+		internal const string TracerName = "Dexc.Telemetry";
 
 		readonly TelemetryMetrics m_Metrics;
 		readonly TelemetryTraces m_Traces;

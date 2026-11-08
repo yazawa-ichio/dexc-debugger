@@ -86,6 +86,7 @@ namespace Dexc.Telemetry
 		)
 		{
 			m_Files = files;
+			m_Run++;
 			m_RestartsInterval = false;
 			m_Capture.BeginRun();
 			Metrics.SetResource(resource);
@@ -135,6 +136,42 @@ namespace Dexc.Telemetry
 		}
 
 		internal const string SceneAnnotation = "unity.scene";
+
+		TelemetryHistogram m_LoadDuration;
+
+		/// <summary>Counts the runs, so that a load of an earlier run does not end one of this run.</summary>
+		int m_Run;
+
+		/// <summary>Starts a load. Without telemetry running it measures nothing and leaves the frames alone.</summary>
+		internal TelemetryLoad BeginLoad(string name, TelemetryLoadKind kind)
+		{
+			if (string.IsNullOrEmpty(name))
+			{
+				throw new ArgumentException("A load needs a name.", nameof(name));
+			}
+			if (!IsRunning)
+			{
+				return new TelemetryLoad(this, name, kind, default, -1);
+			}
+			var span = Traces.Tracer(TelemetryCapture.TracerName).Start(TelemetryLoad.SpanName, default, TelemetryDetail.Basic);
+			span.Set(TelemetryLoad.NameAttribute, name);
+			span.Set(TelemetryLoad.KindAttribute, TelemetryLoad.KindName(kind));
+			Metrics.LoadsInProgress++;
+			return new TelemetryLoad(this, name, kind, span, m_Run);
+		}
+
+		internal void EndLoad(TelemetryLoad load, double milliseconds)
+		{
+			if (load.Run != m_Run || !IsRunning)
+			{
+				// Begun outside this run: before telemetry ran, or before a stop that closed it.
+				return;
+			}
+			Metrics.LoadsInProgress--;
+			m_LoadDuration = m_LoadDuration ?? Metrics.Histogram("dexc.load.duration", "ms", new double[] { 100, 250, 500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 60000 });
+			m_LoadDuration.Series(TelemetryLoad.KindAttribute, TelemetryLoad.KindName(load.Kind), TelemetryLoad.NameAttribute, load.Name)
+				.Record(milliseconds, TelemetryDetail.Basic);
+		}
 
 		void OnActiveSceneChanged(Scene previous, Scene next)
 		{
@@ -419,6 +456,8 @@ namespace Dexc.Telemetry
 			m_TraceFrames = null;
 			m_Sources?.Dispose();
 			m_Sources = null;
+			// A load open across a stop is not measured: its span is not written either.
+			Metrics.LoadsInProgress = 0;
 			if (m_AnnotatesScene)
 			{
 				SceneManager.activeSceneChanged -= OnActiveSceneChanged;

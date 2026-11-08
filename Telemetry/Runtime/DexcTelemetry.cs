@@ -254,6 +254,19 @@ namespace Dexc.Telemetry
 			TelemetryRoot.Current.Metrics.Annotations.Set(key, value);
 		}
 
+		/// <summary>
+		/// Starts measuring a load: call it when the player asks for it, and <see cref="TelemetryLoad.End"/> at the first
+		/// frame that takes input again. Steps go in <see cref="TelemetryLoad.Phase"/>. The load is a span
+		/// <c>dexc.load</c> and a value of the histogram <c>dexc.load.duration</c> by kind and name; while it is open the
+		/// frames of Unity are counted in <c>dexc.load.frames</c> and left out of the frame time. Name a load by what it
+		/// loads, such as a stage, not by an instance: each name and kind is a series.
+		/// </summary>
+		/// <exception cref="ArgumentException">The name is empty.</exception>
+		public static TelemetryLoad BeginLoad(string name, TelemetryLoadKind kind = TelemetryLoadKind.Level)
+		{
+			return TelemetryRoot.Current.BeginLoad(name, kind);
+		}
+
 		/// <summary>The counter of this name, made on first use.</summary>
 		/// <exception cref="ArgumentException">The name or unit is invalid, or the name is taken by another kind or unit.</exception>
 		public static TelemetryCounter Counter(string name, string unit = "")
