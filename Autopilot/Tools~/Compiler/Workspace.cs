@@ -27,6 +27,9 @@ namespace Dexc.Autopilot.Compiler
 		public List<string> Assemblies { get; set; }
 		public string Project { get; set; }
 		public string Editor { get; set; }
+
+		/// <summary>The commit the build was made from, if the one who added it said. It goes into the telemetry of the build.</summary>
+		public string Commit { get; set; }
 	}
 
 	internal sealed class WorkspaceFile
@@ -90,6 +93,9 @@ namespace Dexc.Autopilot.Compiler
 		public string OwnBot(string build) => Path.Combine(Directory, "Builds", build);
 
 		public string State(string build) => Path.Combine(Directory, ".state", build);
+
+		/// <summary>Where the telemetry files of a build are gathered: Telemetry/name.</summary>
+		public string Telemetry(string build) => Path.Combine(Directory, "Telemetry", build);
 	}
 
 	/// <summary>Makes what a bot compiles against. Later sources replace earlier ones of the same file name.</summary>
@@ -235,6 +241,9 @@ namespace Dexc.Autopilot.Compiler
 		private string ProcessFile => Path.Combine(State, "player.pid");
 		public string Port => File.Exists(PortFile) ? File.ReadAllText(PortFile).Trim() : null;
 
+		/// <summary>The folder the Player writes its telemetry in, its own even when builds share a product name.</summary>
+		public string TelemetryFolder => Path.Combine(State, "telemetry");
+
 		public bool IsRunning => FindProcess() != null;
 
 		public JsonObject Status()
@@ -244,7 +253,8 @@ namespace Dexc.Autopilot.Compiler
 			return new PlayerLink(TokenFile, int.Parse(Port)).Send("status", null);
 		}
 
-		public void Start(bool headless)
+		/// <param name="seed">Put into the telemetry of the run as dexc.seed, for the bot or the game to read the same way.</param>
+		public void Start(bool headless, string seed)
 		{
 			if (IsRunning)
 				return;
@@ -257,6 +267,9 @@ namespace Dexc.Autopilot.Compiler
 			var start = new ProcessStartInfo(m_Workspace.File.Builds[Name].Player) { UseShellExecute = true };
 			var display = headless ? new[] { "-batchmode" } : new[] { "-screen-fullscreen", "0", "-screen-width", "1024", "-screen-height", "640" };
 			foreach (var argument in display.Concat(new[] { "-logFile", Path.Combine(State, "player.log"), "-dexc-autopilot-token", token, "-dexc-autopilot-port", port.ToString() }))
+				start.ArgumentList.Add(argument);
+			// Read by Dexc Telemetry when the game or an eval starts it. A Player without it ignores them.
+			foreach (var argument in TelemetryArguments(seed))
 				start.ArgumentList.Add(argument);
 			using (var process = Process.Start(start))
 				File.WriteAllText(ProcessFile, process.Id.ToString());
@@ -297,6 +310,48 @@ namespace Dexc.Autopilot.Compiler
 			File.Delete(PortFile);
 		}
 
+		private IEnumerable<string> TelemetryArguments(string seed)
+		{
+			yield return "-dexc-telemetry-directory";
+			yield return TelemetryFolder;
+			var resource = new List<string> { "dexc.build=" + Name };
+			var commit = m_Workspace.File.Builds[Name].Commit;
+			if (!string.IsNullOrEmpty(commit))
+				resource.Add("vcs.ref.head.revision=" + commit);
+			if (!string.IsNullOrEmpty(seed))
+				resource.Add("dexc.seed=" + seed);
+			foreach (var pair in resource)
+			{
+				yield return "-dexc-telemetry-resource";
+				yield return pair;
+			}
+		}
+
+		/// <summary>
+		/// Moves the closed telemetry files of this Player into the workspace: the .otlp files and the Profiler files of
+		/// captures, never one still being written. Seal the Player first to have everything up to now.
+		/// </summary>
+		public int TakeTelemetry(string target)
+		{
+			if (!Directory.Exists(TelemetryFolder))
+				return 0;
+			Directory.CreateDirectory(target);
+			var taken = 0;
+			foreach (var path in Directory.GetFiles(TelemetryFolder))
+			{
+				var name = Path.GetFileName(path);
+				var closed = name.EndsWith(".otlp", StringComparison.OrdinalIgnoreCase)
+					|| (name.StartsWith("capture-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".raw", StringComparison.OrdinalIgnoreCase));
+				var destination = Path.Combine(target, name);
+				if (!closed || File.Exists(destination))
+					continue;
+				File.Move(path, destination);
+				taken++;
+			}
+
+			return taken;
+		}
+
 		/// <summary>By id and by name: Windows hands the id of a Player that has gone to the next process.</summary>
 		private Process FindProcess()
 		{
@@ -328,9 +383,10 @@ namespace Dexc.Autopilot.Compiler
 
 	/// <summary>
 	///   ws init dir [--using a,b] [--publicize a,b]
-	///   ws add name player [--dlls a,b] [--csproj file] [--editor dir]
+	///   ws add name player [--dlls a,b] [--csproj file] [--editor dir] [--commit sha]
 	///   ws remove name
-	///   ws refs | start [--headless] | stop | status | watch      [--build a,b]
+	///   ws refs | start [--headless] [--seed n] | stop | status | watch      [--build a,b]
+	///   ws telemetry start [--watch a,b] | capture frames [--profiler] | pull | stop   [--build a,b]
 	///   ws bot [--load] [--vm ...]                                 [--build a,b]
 	///   ws eval "snippet" [--vm ...] [--keep]                      [--build a,b]
 	/// Every build answers on a line of its own, whatever the others did.
@@ -368,9 +424,11 @@ namespace Dexc.Autopilot.Compiler
 						Warm(workspace, players, compilerPort);
 						return ForEach(players, player =>
 						{
-							player.Start(options.Has("headless"));
+							player.Start(options.Has("headless"), options.Value("seed", null));
 							return "port " + player.Port;
 						});
+					case "telemetry":
+						return Telemetry(workspace, players, arguments, options, compilerPort);
 					case "stop":
 						return ForEach(players, player =>
 						{
@@ -386,7 +444,7 @@ namespace Dexc.Autopilot.Compiler
 					case "watch":
 						return Watch(workspace, players, options, compilerPort);
 					default:
-						Console.Error.WriteLine("usage: ws init | add | remove | refs | start | stop | status | bot | eval | watch");
+						Console.Error.WriteLine("usage: ws init | add | remove | refs | start | stop | status | bot | eval | telemetry | watch");
 						return 2;
 				}
 			}
@@ -423,6 +481,8 @@ namespace Dexc.Autopilot.Compiler
 
 			if (options.Has("editor"))
 				build.Editor = Path.GetFullPath(options.Value("editor", null));
+			if (options.Has("commit"))
+				build.Commit = options.Value("commit", null);
 			workspace.File.Builds[name] = build;
 			Directory.CreateDirectory(workspace.OwnBot(name));
 			WorkspaceReferences.Generate(workspace, name);
@@ -521,6 +581,41 @@ namespace Dexc.Autopilot.Compiler
 				"port", player.Port,
 				"token", player.TokenFile
 			));
+
+		/// <summary>
+		/// Dexc Telemetry in every build, through eval, so that the game needs no code for it: start it, capture frames, and
+		/// gather the files into Telemetry/name. Each Player writes in its own folder, which ws start gave it.
+		/// </summary>
+		private static int Telemetry(Workspace workspace, List<WorkspacePlayer> players, string[] arguments, Program.Options options, int compilerPort)
+		{
+			const string Api = "Dexc.Telemetry.DexcTelemetry";
+			var verb = arguments.Length > 2 ? arguments[2] : string.Empty;
+			switch (verb)
+			{
+				case "start":
+					var watch = string.Concat(List(options, "watch").Select(pattern => Api + ".Watch(\"" + pattern.Replace("\"", string.Empty) + "\");"));
+					return ForEach(Running(players), player => Eval(workspace, player, "if (!" + Api + ".IsRunning) " + Api + ".Start(); " + watch + " return " + Api + ".IsRunning;", options, compilerPort));
+				case "capture":
+					if (arguments.Length < 4 || !int.TryParse(arguments[3], out var frames) || frames <= 0)
+						throw new InvalidOperationException("ws telemetry capture <frames>");
+					var profiler = options.Has("profiler") ? "true" : "false";
+					return ForEach(Running(players), player => Eval(workspace, player, "return " + Api + ".Capture(" + frames + ", Dexc.Telemetry.TelemetryDetail.Detailed, " + profiler + ");", options, compilerPort));
+				case "pull":
+					return ForEach(players, player => Gather(workspace, player, Api + ".Seal(); return true;", options, compilerPort));
+				case "stop":
+					return ForEach(players, player => Gather(workspace, player, Api + ".Stop(); return true;", options, compilerPort));
+				default:
+					throw new InvalidOperationException("ws telemetry start | capture <frames> | pull | stop");
+			}
+		}
+
+		/// <summary>Has a running Player close its files, then takes them. A Player that stopped has its closed files taken as they are.</summary>
+		private static string Gather(Workspace workspace, WorkspacePlayer player, string snippet, Program.Options options, int compilerPort)
+		{
+			var answer = player.IsRunning ? Eval(workspace, player, snippet, options, compilerPort) : "stopped";
+			var taken = player.TakeTelemetry(workspace.Telemetry(player.Name));
+			return "took " + taken + " files into " + workspace.Telemetry(player.Name) + " (" + answer + ")";
+		}
 
 		private static string Bot(Workspace workspace, WorkspacePlayer player, Program.Options options, int compilerPort)
 		{

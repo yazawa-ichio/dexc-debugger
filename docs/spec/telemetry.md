@@ -307,6 +307,7 @@ DexcTelemetry.StopCapture();
 - ホストが閉じたファイルを取り、取った側が消す。消さなければ、フォルダーの上限で古いものから消える。ファイル名は実行と番号で一意なので、同じ名前を二度取らなければ重複しない
 - ファイルに直接触れられない環境のために、`DexcTelemetry.Files()`、`ReadFile(name, offset, buffer)`、`DeleteFile(name)`を持つ。運ぶ経路はパッケージに持たせない（Autopilotの接続はT9）
 - ホストのCLIの`pull`は、フォルダー（Windows、Editor）とadb（Android）から取る
+- Autopilotのワークスペースは、`ws telemetry pull`でevalから`Seal`を呼び、各ビルドのフォルダーから集める（[Autopilotの仕様](autopilot.md#テレメトリー)）
 
 ### Push（サーバーがあるとき）
 

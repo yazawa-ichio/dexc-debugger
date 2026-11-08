@@ -42,6 +42,8 @@ namespace Dexc.Autopilot
 			"System.Runtime.CompilerServices.AsyncVoidMethodBuilder",
 		};
 
+		const string TelemetryAssembly = "Dexc.Telemetry";
+
 		public int callbackOrder => 0;
 
 		public string GenerateAdditionalLinkXmlFile(BuildReport report, UnityLinkerBuildPipelineData data)
@@ -72,6 +74,10 @@ namespace Dexc.Autopilot
 				if (IsInBuild(assembly))
 					Keep(content, assembly);
 			}
+
+			// The workspace starts telemetry, captures and seals through eval, which the game's code need not call.
+			if (IsInBuild(TelemetryAssembly))
+				Keep(content, TelemetryAssembly);
 
 			content.Append("  <assembly fullname=\"mscorlib\">\n");
 			foreach (var type in s_ClassLibrary)

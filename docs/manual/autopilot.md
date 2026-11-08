@@ -243,14 +243,15 @@ Dexc.Autopilot.Compiler ws eval "MyGame.Instance.Score"
 | コマンド | 内容 |
 | --- | --- |
 | `ws init <dir>` | ワークスペースを作ります。`--using`はスニペットの`using`、`--publicize`は`private`を使うアセンブリです |
-| `ws add <name> <player>` | ビルドを登録し、参照を作ります。Playerはコピーしません |
+| `ws add <name> <player>` | ビルドを登録し、参照を作ります。Playerはコピーしません。`--commit <sha>`で、テレメトリーに載せるコミットを記録します |
 | `ws remove <name>` | 登録を消します |
 | `ws refs` | 参照を作り直します |
-| `ws start`／`ws stop` | Playerを起動、停止します。`--headless`でウィンドウなしで起動します |
+| `ws start`／`ws stop` | Playerを起動、停止します。`--headless`でウィンドウなしで起動します。`--seed <n>`で、テレメトリーに載せるシードを渡します |
 | `ws status` | 各Playerの状態を表示します |
 | `ws bot --load` | Botをビルドごとにコンパイルし、読み込みます |
 | `ws eval "<snippet>"` | 動いている全ビルドでスニペットを実行します |
 | `ws watch` | 保存を検知して読み込みます。`Common`の保存は全ビルドへ、`Builds/<name>`の保存はそのビルドへ送ります |
+| `ws telemetry <command>` | 各ビルドのDexc Telemetryを操作します。[テレメトリー](#テレメトリー)を参照してください |
 
 `--build a,b`で対象のビルドを絞れます。`workspace.json`のある場所の外から使うときは、`DEXC_WORKSPACE`で指定します。
 
@@ -260,8 +261,32 @@ Dexc.Autopilot.Compiler ws eval "MyGame.Instance.Score"
 workspace.json
 Common/              全ビルドで共通のBot
 Builds/fix-1234/     そのビルド専用のBot
-.state/              参照、トークン、ポート、ログ
+.state/              参照、トークン、ポート、ログ、テレメトリーの書きかけ
+Telemetry/fix-1234/  集めたテレメトリーのファイル
 ```
+
+### テレメトリー
+
+Dexc Telemetryのパッケージがあるビルドでは、テレメトリーをevalで操作します。ゲームにテレメトリーのコードは要りません。
+
+```sh
+Dexc.Autopilot.Compiler ws start --seed 42
+Dexc.Autopilot.Compiler ws telemetry start --watch MyGame.Stage.*
+Dexc.Autopilot.Compiler ws telemetry capture 300 --profiler
+Dexc.Autopilot.Compiler ws telemetry pull
+```
+
+| コマンド | 内容 |
+| --- | --- |
+| `ws telemetry start` | 動いていなければ`DexcTelemetry.Start()`を呼びます。`--watch a,b`で`DexcTelemetry.Watch`も呼びます |
+| `ws telemetry capture <frames>` | 全ビルドで同時にキャプチャを始めます。`--profiler`で、Development BuildならUnity Profilerの`.raw`も書きます |
+| `ws telemetry pull` | `DexcTelemetry.Seal()`で今のファイルを閉じさせ、閉じたファイルを`Telemetry/<name>`へ移します |
+| `ws telemetry stop` | `DexcTelemetry.Stop()`を呼び、ファイルを移します |
+
+- `ws start`は、ビルドごとに`.state/<name>/telemetry`を書き出し先にし、`dexc.build`、`vcs.ref.head.revision`（`--commit`）、`dexc.seed`（`--seed`）をResourceに載せるよう、Playerの引数で渡します。同じ製品の複数のビルドが同じフォルダーに書かないようにするためです
+- 止まったPlayerの`pull`は、閉じたファイルだけを移します
+- 集めたファイルは、`Telemetry/Tools~/Cli`の`dump`、`captures`、`cut`、`send`で読み、送ります
+- `capture`のフレーム数は、オプションより前に書きます
 
 ### 共通のBotと専用のBot
 

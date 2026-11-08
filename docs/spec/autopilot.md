@@ -183,6 +183,13 @@ Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルド
 
 `dlls`は`--editor`を必須とする。ビルド前のDLLは`netstandard`を参照するが、Playerの`Managed`には無い。`Managed`が無いPlayerは、`--editor`でEditorのエンジンとクラスライブラリを土台にする。
 
+### テレメトリー
+
+- Dexc Telemetryへの依存は持たない。Playerの起動の引数と、evalのスニペットだけでつなぐ。パッケージの無いPlayerは引数を読まず、evalがコンパイルエラーになる
+- `ws start`は`-dexc-telemetry-directory .state/<name>/telemetry`と、`-dexc-telemetry-resource`で`dexc.build`、`vcs.ref.head.revision`、`dexc.seed`を渡す。同じ製品のビルドは`persistentDataPath`を共有するので、フォルダーを分ける
+- `ws telemetry start|capture|pull|stop`は、evalで`DexcTelemetry`を呼ぶ。`pull`は`Seal`の後、閉じたファイル（`.otlp`と`capture-*.raw`）を`Telemetry/<name>`へ移す。テレメトリーのPullの規格に従う
+- link.xmlは、ビルドに`Dexc.Telemetry`があれば丸ごと残す。evalからだけ呼ぶAPIがストリップされないためである
+
 ## ガードレール
 
 ### Pipeline
