@@ -87,7 +87,9 @@ namespace Dexc.Telemetry.CodeGen
 							}
 							else
 							{
-								changed |= TelemetryWeaver.InstrumentWatched(module, profiles.Active, Selectors(), diagnostics);
+								TelemetryWeaver.InstrumentWatched(module, profiles.Active, Selectors(), diagnostics);
+								TelemetryWeaver.MarkProfiles(module, profiles.Hash);
+								changed = true;
 							}
 						}
 						if (changed)

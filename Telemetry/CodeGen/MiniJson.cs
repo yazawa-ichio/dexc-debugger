@@ -32,6 +32,94 @@ namespace Dexc.Telemetry.CodeGen
 			return value;
 		}
 
+		/// <summary>Writes what <see cref="Parse"/> reads, indented by two spaces.</summary>
+		internal static string Write(object value)
+		{
+			var builder = new StringBuilder();
+			Write(builder, value, 0);
+			return builder.Append('\n').ToString();
+		}
+
+		static void Write(StringBuilder builder, object value, int depth)
+		{
+			switch (value)
+			{
+				case null:
+					builder.Append("null");
+					break;
+				case bool flag:
+					builder.Append(flag ? "true" : "false");
+					break;
+				case double number:
+					builder.Append(number.ToString("R", CultureInfo.InvariantCulture));
+					break;
+				case string text:
+					WriteString(builder, text);
+					break;
+				case Dictionary<string, object> map:
+					builder.Append('{');
+					var first = true;
+					foreach (var pair in map)
+					{
+						builder.Append(first ? "\n" : ",\n").Append(' ', (depth + 1) * 2);
+						WriteString(builder, pair.Key);
+						builder.Append(": ");
+						Write(builder, pair.Value, depth + 1);
+						first = false;
+					}
+					builder.Append(first ? "}" : "\n" + new string(' ', depth * 2) + "}");
+					break;
+				case List<object> list:
+					builder.Append('[');
+					for (var i = 0; i < list.Count; i++)
+					{
+						builder.Append(i == 0 ? "\n" : ",\n").Append(' ', (depth + 1) * 2);
+						Write(builder, list[i], depth + 1);
+					}
+					builder.Append(list.Count == 0 ? "]" : "\n" + new string(' ', depth * 2) + "]");
+					break;
+				default:
+					throw new ArgumentException("Not a JSON value: " + value.GetType(), nameof(value));
+			}
+		}
+
+		static void WriteString(StringBuilder builder, string text)
+		{
+			builder.Append('"');
+			foreach (var character in text)
+			{
+				switch (character)
+				{
+					case '"':
+						builder.Append("\\\"");
+						break;
+					case '\\':
+						builder.Append("\\\\");
+						break;
+					case '\n':
+						builder.Append("\\n");
+						break;
+					case '\r':
+						builder.Append("\\r");
+						break;
+					case '\t':
+						builder.Append("\\t");
+						break;
+					default:
+						if (character < ' ')
+						{
+							builder.Append("\\u").Append(((int)character).ToString("x4", CultureInfo.InvariantCulture));
+						}
+						else
+						{
+							builder.Append(character);
+						}
+						break;
+				}
+			}
+			builder.Append('"');
+		}
+
 		object Value()
 		{
 			Space();

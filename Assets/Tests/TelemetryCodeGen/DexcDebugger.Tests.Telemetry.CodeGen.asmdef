@@ -3,7 +3,8 @@
   "rootNamespace": "DexcDebugger.Tests.Telemetry.CodeGen",
   "references": [
     "Dexc.Telemetry",
-    "Unity.Dexc.Telemetry.CodeGen"
+    "Unity.Dexc.Telemetry.CodeGen",
+    "Dexc.Telemetry.Editor"
   ],
   "includePlatforms": [
     "Editor"

@@ -355,7 +355,14 @@ DexcTelemetry.UnwatchAll();
 - プロジェクトのプリセットは`ProjectSettings/DexcTelemetryProfiles.json`、ユーザーのものは`UserSettings/DexcTelemetryProfiles.json`に書く。ユーザーのプリセットは同じ名前のプロジェクトのものを置き換え、ユーザーの`active`が優先する
 - `assemblies`（`*`で終わるものは前方一致）、`namespaces`（その下も含む）、`attributes`（メソッドか型の属性の完全名）のうち、書いたものすべてに合うメソッドを選ぶ。どれも書かなければ何も選ばない
 - `every`、`perFrame`、`anyThread`は、選んだメソッドの間引き、上限、別スレッドの記録である
-- IL処理はプロジェクトのフォルダーで動くので、そこからファイルを読む。ファイルを変えただけではコンパイルが起きない（Editorで確かめた）。反映の仕組みは次の手順で入れる
+- IL処理はプロジェクトのフォルダーで動くので、そこからファイルを読む
+- Project Settingsの「Dexc Telemetry」でプリセットを選ぶ。選んだものは`UserSettings`の`active`に書く。プロジェクトのファイルは変えない。プリセットの中身はファイルで編集する
+
+### 設定の反映
+
+- ファイルを変えただけではコンパイルが起きない（Editorで確かめた）。そこで`DEXC_TELEMETRY_WATCH`のあるアセンブリには、IL処理が使った両方のファイルのハッシュを`AssemblyMetadataAttribute("DexcTelemetry.Profiles", hash)`で残す
+- Editorは、読み込んだときと前面に戻ったときに、読み込んだアセンブリのハッシュとファイルを比べる。違えばビルドのキャッシュを捨てて再コンパイルを要求する（`CompilationPipeline.RequestScriptCompilation(CleanBuildCache)`）
+- Playerのビルドは、前にコンパイルしたアセンブリを使い回すことがある。`IPostBuildPlayerScriptDLLs`でビルドのスクリプトのアセンブリのハッシュを比べ、違えばクリーンビルドを求めてビルドを止める。この時点の`BuildReport`にアセンブリが載るかは、最後のPlayerの確認で確かめる
 
 ### 関数で選ぶ
 

@@ -1,0 +1,20 @@
+{
+  "name": "Dexc.Telemetry.Editor",
+  "rootNamespace": "Dexc.Telemetry.Editor",
+  "references": [
+    "Unity.Dexc.Telemetry.CodeGen"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Mono.Cecil.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

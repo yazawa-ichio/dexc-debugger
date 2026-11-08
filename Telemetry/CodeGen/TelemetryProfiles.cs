@@ -119,6 +119,26 @@ namespace Dexc.Telemetry.CodeGen
 			return profiles;
 		}
 
+		/// <summary>The text of a profile file with <c>active</c> set, or taken out for null. The rest stays.</summary>
+		/// <exception cref="FormatException">The text is not valid.</exception>
+		internal static string WithActive(string text, string active)
+		{
+			var root = string.IsNullOrWhiteSpace(text) ? new Dictionary<string, object>(StringComparer.Ordinal) : MiniJson.Parse(text) as Dictionary<string, object>;
+			if (root == null)
+			{
+				throw new FormatException("A profile file must hold an object.");
+			}
+			if (active == null)
+			{
+				root.Remove("active");
+			}
+			else
+			{
+				root["active"] = active;
+			}
+			return MiniJson.Write(root);
+		}
+
 		static string ReadFile(string path)
 		{
 			return File.Exists(path) ? File.ReadAllText(path) : null;

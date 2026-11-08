@@ -16,6 +16,7 @@ namespace Dexc.Telemetry.CodeGen
 		const string MethodAttributeType = "Dexc.Telemetry.TelemetryMethodAttribute";
 		internal const string RuntimeAssembly = "Dexc.Telemetry";
 		internal const string WatchSymbol = "DEXC_TELEMETRY_WATCH";
+		internal const string ProfilesMetadata = "DexcTelemetry.Profiles";
 		internal const string DetailBasic = "DEXC_TELEMETRY_DETAIL_BASIC";
 		internal const string DetailStandard = "DEXC_TELEMETRY_DETAIL_STANDARD";
 		internal const string DetailDetailed = "DEXC_TELEMETRY_DETAIL_DETAILED";
@@ -269,6 +270,22 @@ namespace Dexc.Telemetry.CodeGen
 				}
 			}
 			return changed;
+		}
+
+		/// <summary>
+		/// Writes the hash of the presets the assembly was processed with into <c>AssemblyMetadataAttribute</c>, so that the
+		/// Editor and a Player build can tell an assembly made with presets that have changed since.
+		/// </summary>
+		internal static void MarkProfiles(ModuleDefinition module, string hash)
+		{
+			var type = new TypeReference("System.Reflection", "AssemblyMetadataAttribute", module, module.TypeSystem.CoreLibrary);
+			var constructor = new MethodReference(".ctor", module.TypeSystem.Void, type) { HasThis = true };
+			constructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+			constructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
+			var attribute = new CustomAttribute(constructor);
+			attribute.ConstructorArguments.Add(new CustomAttributeArgument(module.TypeSystem.String, ProfilesMetadata));
+			attribute.ConstructorArguments.Add(new CustomAttributeArgument(module.TypeSystem.String, hash));
+			module.Assembly.CustomAttributes.Add(attribute);
 		}
 
 		static bool Selected(IReadOnlyList<ITelemetryMethodSelector> selectors, string assembly, MethodDefinition method)
