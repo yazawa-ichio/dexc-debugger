@@ -27,9 +27,14 @@ namespace Dexc.Telemetry
 		}
 
 		readonly Sampled[] m_Memory;
+		readonly TelemetryAnnotations m_Annotations;
 		readonly TelemetryHistogram m_FrameTime;
 		readonly TelemetryHistogram m_MainThreadTime;
 		readonly TelemetryHistogram m_FrameAllocated;
+		TelemetryHistogram m_FrameTimeNow;
+		TelemetryHistogram m_MainThreadTimeNow;
+		TelemetryHistogram m_FrameAllocatedNow;
+		int m_AnnotationVersion = -1;
 		readonly TelemetryCounter m_Collections;
 		readonly TelemetryHistogram m_SourceTime;
 		readonly TelemetryHistogram m_ExportTime;
@@ -40,6 +45,7 @@ namespace Dexc.Telemetry
 
 		internal TelemetrySources(TelemetryMetrics metrics)
 		{
+			m_Annotations = metrics.Annotations;
 			var frameBounds = new[] { 4, 8, 11.2, 16.7, 20, 25, 33.4, 50, 66.7, 100, 250, 1000 };
 			var costBounds = new[] { 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10 };
 			m_FrameTime = metrics.Histogram("unity.frame.time", "ms", frameBounds);
@@ -67,14 +73,22 @@ namespace Dexc.Telemetry
 		internal void OnFrame(double deltaSeconds)
 		{
 			var started = Stopwatch.GetTimestamp();
-			m_FrameTime.Record(deltaSeconds * MillisecondsPerSecond, TelemetryDetail.Basic);
+			if (m_AnnotationVersion != m_Annotations.Version)
+			{
+				// The series of what the game is doing now. Looked up only when that changes.
+				m_AnnotationVersion = m_Annotations.Version;
+				m_FrameTimeNow = m_Annotations.Apply(m_FrameTime);
+				m_MainThreadTimeNow = m_Annotations.Apply(m_MainThreadTime);
+				m_FrameAllocatedNow = m_Annotations.Apply(m_FrameAllocated);
+			}
+			m_FrameTimeNow.Record(deltaSeconds * MillisecondsPerSecond, TelemetryDetail.Basic);
 			if (m_MainThread.Valid && m_MainThread.LastValue > 0)
 			{
-				m_MainThreadTime.Record(m_MainThread.LastValue * MillisecondsPerNanosecond, TelemetryDetail.Basic);
+				m_MainThreadTimeNow.Record(m_MainThread.LastValue * MillisecondsPerNanosecond, TelemetryDetail.Basic);
 			}
 			if (m_Allocated.Valid)
 			{
-				m_FrameAllocated.Record(m_Allocated.LastValue, TelemetryDetail.Standard);
+				m_FrameAllocatedNow.Record(m_Allocated.LastValue, TelemetryDetail.Standard);
 			}
 			m_SourceTime.Record(Elapsed(started), TelemetryDetail.Standard);
 		}

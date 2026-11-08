@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace Dexc.Telemetry
@@ -10,14 +11,15 @@ namespace Dexc.Telemetry
 		readonly int m_ValueOffset;
 		long m_Value;
 
-		internal TelemetryCounter(TelemetryMetrics owner, string name, string unit)
-			: base(owner, name, unit)
+		internal TelemetryCounter(TelemetryMetrics owner, string name, string unit, KeyValuePair<string, string>[] attributes = null)
+			: base(owner, name, unit, attributes)
 		{
-			var writer = new ProtobufWriter(TemplateOverhead + name.Length + unit.Length);
+			var writer = new ProtobufWriter(TemplateOverhead + name.Length + unit.Length + AttributeBytes(attributes));
 			var metric = writer.BeginMessage(OtlpFields.ScopeMetricsMetrics);
 			WriteMetricHeader(writer, name, unit);
 			var sum = writer.BeginMessage(OtlpFields.MetricSum);
 			var point = writer.BeginMessage(OtlpFields.SumDataPoints);
+			WriteAttributes(writer, OtlpFields.NumberPointAttributes, attributes);
 			var startTime = writer.WriteReservedFixed64Field(OtlpFields.NumberPointStartTime);
 			var time = writer.WriteReservedFixed64Field(OtlpFields.NumberPointTime);
 			m_ValueOffset = writer.WriteReservedFixed64Field(OtlpFields.NumberPointInt);
@@ -27,6 +29,25 @@ namespace Dexc.Telemetry
 			writer.EndMessage(sum);
 			writer.EndMessage(metric);
 			SetTemplate(writer, startTime, time);
+		}
+
+		/// <summary>The series of this counter whose values have the attribute.</summary>
+		/// <exception cref="System.ArgumentException">The key is empty or over 63 characters, or the value is null or over 255.</exception>
+		/// <exception cref="System.InvalidOperationException">This is a series already.</exception>
+		public TelemetryCounter Series(string key, string value)
+		{
+			return (TelemetryCounter)GetSeries(key, value, null, null);
+		}
+
+		/// <inheritdoc cref="Series(string, string)"/>
+		public TelemetryCounter Series(string key1, string value1, string key2, string value2)
+		{
+			return (TelemetryCounter)GetSeries(key1, value1, key2, value2);
+		}
+
+		private protected override TelemetryInstrument CreateSeries(KeyValuePair<string, string>[] attributes)
+		{
+			return new TelemetryCounter(Owner, Name, Unit, attributes);
 		}
 
 		/// <summary>Adds to the total. A value below one is ignored: the total only grows.</summary>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Dexc.Telemetry
 {
@@ -41,6 +42,7 @@ namespace Dexc.Telemetry
 		string m_Folder;
 		bool m_RestartsInterval;
 		bool m_IsInPlayerLoop;
+		bool m_AnnotatesScene;
 
 		internal bool IsRunning => m_MetricsFrames != null;
 
@@ -115,6 +117,12 @@ namespace Dexc.Telemetry
 			{
 				m_Sources = new TelemetrySources(Metrics);
 			}
+			if (options.AnnotateScene)
+			{
+				m_AnnotatesScene = true;
+				Metrics.Annotations.Set(SceneAnnotation, SceneManager.GetActiveScene().name);
+				SceneManager.activeSceneChanged += OnActiveSceneChanged;
+			}
 			if (Application.isPlaying)
 			{
 				var driver = new GameObject("DexcTelemetry") { hideFlags = HideFlags.HideAndDontSave };
@@ -124,6 +132,13 @@ namespace Dexc.Telemetry
 				TelemetryPlayerLoop.Install(OnPlayerLoop);
 				m_IsInPlayerLoop = true;
 			}
+		}
+
+		internal const string SceneAnnotation = "unity.scene";
+
+		void OnActiveSceneChanged(Scene previous, Scene next)
+		{
+			Metrics.Annotations.Set(SceneAnnotation, next.name);
 		}
 
 		/// <summary>Asks for a capture from the next frame boundary. False when not running or already capturing.</summary>
@@ -404,6 +419,12 @@ namespace Dexc.Telemetry
 			m_TraceFrames = null;
 			m_Sources?.Dispose();
 			m_Sources = null;
+			if (m_AnnotatesScene)
+			{
+				SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+				Metrics.Annotations.Set(SceneAnnotation, null);
+				m_AnnotatesScene = false;
+			}
 			m_Capture.End();
 			StopUpload();
 			// What the frames queued, their closing included, is written before the thread ends.

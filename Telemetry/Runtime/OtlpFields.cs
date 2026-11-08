@@ -51,6 +51,7 @@ namespace Dexc.Telemetry
 		internal const int NumberPointTime = 3;
 		internal const int NumberPointDouble = 4;
 		internal const int NumberPointInt = 6;
+		internal const int NumberPointAttributes = 7;
 
 		internal const int HistogramPointStartTime = 2;
 		internal const int HistogramPointTime = 3;
@@ -60,6 +61,7 @@ namespace Dexc.Telemetry
 		internal const int HistogramPointExplicitBounds = 7;
 		internal const int HistogramPointMin = 11;
 		internal const int HistogramPointMax = 12;
+		internal const int HistogramPointAttributes = 9;
 
 		internal const ulong TemporalityDelta = 1;
 

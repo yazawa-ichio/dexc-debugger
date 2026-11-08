@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace Dexc.Telemetry
@@ -23,16 +24,17 @@ namespace Dexc.Telemetry
 		double m_Minimum;
 		double m_Maximum;
 
-		internal TelemetryHistogram(TelemetryMetrics owner, string name, string unit, double[] bounds)
-			: base(owner, name, unit)
+		internal TelemetryHistogram(TelemetryMetrics owner, string name, string unit, double[] bounds, KeyValuePair<string, string>[] attributes = null)
+			: base(owner, name, unit, attributes)
 		{
 			m_Bounds = bounds;
 			m_Buckets = new ulong[bounds.Length + 1];
-			var writer = new ProtobufWriter(TemplateOverhead + name.Length + unit.Length + (bounds.Length * 2 + 1) * 8);
+			var writer = new ProtobufWriter(TemplateOverhead + name.Length + unit.Length + (bounds.Length * 2 + 1) * 8 + AttributeBytes(attributes));
 			var metric = writer.BeginMessage(OtlpFields.ScopeMetricsMetrics);
 			WriteMetricHeader(writer, name, unit);
 			var histogram = writer.BeginMessage(OtlpFields.MetricHistogram);
 			var point = writer.BeginMessage(OtlpFields.HistogramDataPoints);
+			WriteAttributes(writer, OtlpFields.HistogramPointAttributes, attributes);
 			var startTime = writer.WriteReservedFixed64Field(OtlpFields.HistogramPointStartTime);
 			var time = writer.WriteReservedFixed64Field(OtlpFields.HistogramPointTime);
 			m_CountOffset = writer.WriteReservedFixed64Field(OtlpFields.HistogramPointCount);
@@ -46,6 +48,25 @@ namespace Dexc.Telemetry
 			writer.EndMessage(histogram);
 			writer.EndMessage(metric);
 			SetTemplate(writer, startTime, time);
+		}
+
+		/// <summary>The series of this histogram whose values have the attribute. Its buckets are those of the histogram.</summary>
+		/// <exception cref="ArgumentException">The key is empty or over 63 characters, or the value is null or over 255.</exception>
+		/// <exception cref="InvalidOperationException">This is a series already.</exception>
+		public TelemetryHistogram Series(string key, string value)
+		{
+			return (TelemetryHistogram)GetSeries(key, value, null, null);
+		}
+
+		/// <inheritdoc cref="Series(string, string)"/>
+		public TelemetryHistogram Series(string key1, string value1, string key2, string value2)
+		{
+			return (TelemetryHistogram)GetSeries(key1, value1, key2, value2);
+		}
+
+		private protected override TelemetryInstrument CreateSeries(KeyValuePair<string, string>[] attributes)
+		{
+			return new TelemetryHistogram(Owner, Name, Unit, m_Bounds, attributes);
 		}
 
 		internal bool HasBounds(double[] bounds)

@@ -241,6 +241,19 @@ namespace Dexc.Telemetry
 			return Path.Combine(Folder, name);
 		}
 
+		/// <summary>
+		/// Says what the game is doing now, such as the stage or the mode, so that the metrics of each frame (the frame time,
+		/// the main thread time, the allocation) are split by it into series. Null takes the key off. Set it when it changes,
+		/// not every frame. Two keys at most: each combination of values is a series, up to 32 per metric, and the rest are
+		/// counted as "other".
+		/// </summary>
+		/// <exception cref="ArgumentException">The key is empty or over 63 characters, or the value is over 255.</exception>
+		/// <exception cref="InvalidOperationException">Two other keys are set already.</exception>
+		public static void Annotate(string key, string value)
+		{
+			TelemetryRoot.Current.Metrics.Annotations.Set(key, value);
+		}
+
 		/// <summary>The counter of this name, made on first use.</summary>
 		/// <exception cref="ArgumentException">The name or unit is invalid, or the name is taken by another kind or unit.</exception>
 		public static TelemetryCounter Counter(string name, string unit = "")

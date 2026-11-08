@@ -29,6 +29,12 @@ namespace Dexc.Telemetry
 		/// <summary>Whether to collect the frame time, memory and GC of Unity, and the cost of this package.</summary>
 		public bool CollectUnityMetrics = true;
 
+		/// <summary>
+		/// Annotates the frames with the name of the active scene, as <c>unity.scene</c>. Off by default: a game knows better
+		/// what splits its frames, and the scene takes one of the two annotations.
+		/// </summary>
+		public bool AnnotateScene;
+
 		/// <summary>Whether to collect what is logged through Unity, with a <see cref="UnityLogAdapter"/>.</summary>
 		public bool CollectUnityLogs = true;
 

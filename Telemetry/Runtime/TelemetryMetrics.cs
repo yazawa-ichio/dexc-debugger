@@ -25,6 +25,9 @@ namespace Dexc.Telemetry
 		/// <summary>The clock of every record of this root.</summary>
 		internal TelemetryClock Clock { get; } = new TelemetryClock();
 
+		/// <summary>What the game is doing now, by which the metrics of each frame are split.</summary>
+		internal TelemetryAnnotations Annotations { get; } = new TelemetryAnnotations();
+
 		/// <summary>The finest level recorded. Set below what the symbols keep, it silences calls that are compiled in.</summary>
 		internal TelemetryDetail Detail { get; set; } = TelemetryDetail.Detailed;
 
@@ -110,10 +113,16 @@ namespace Dexc.Telemetry
 
 		T Add<T>(T instrument) where T : TelemetryInstrument
 		{
-			m_Instruments.Add(instrument);
+			Register(instrument);
 			m_ByName.Add(instrument.Name, instrument);
-			m_TemplateBytes += instrument.Template.Length;
 			return instrument;
+		}
+
+		/// <summary>Exports the instrument with the others. A series comes here without a name of its own.</summary>
+		internal void Register(TelemetryInstrument instrument)
+		{
+			m_Instruments.Add(instrument);
+			m_TemplateBytes += instrument.Template.Length;
 		}
 
 		/// <summary>The default of the OpenTelemetry SDK, so that a histogram with no bounds of its own compares with others.</summary>
