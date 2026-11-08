@@ -62,7 +62,8 @@
 		return { positions, width: 20 + columns.length * (width + gapX) - gapX, height: 30 + rows * (height + gapY) };
 	}
 
-	function draw(machine, running) {
+	// The graph says where each machine was when the bot was loaded; the status says where the running one is now.
+	function draw(machine, running, current) {
 		const { positions, width, height } = layout(machine);
 		const id = "arrow-" + machine.name.replace(/[^A-Za-z0-9]/g, "_");
 		const picture = shape("svg", { viewBox: "0 0 " + width + " " + height, width, height },
@@ -83,7 +84,7 @@
 		}
 		for (const state of machine.states) {
 			const box = positions[state.name];
-			const kind = state.name === machine.current ? (running ? " current" : " resume") : "";
+			const kind = state.name === current ? (running ? " current" : " resume") : "";
 			picture.append(shape("g", { class: "state" + kind },
 				shape("rect", { x: box.x, y: box.y, width: box.width, height: box.height, rx: 6 }),
 				shape("text", { x: box.x + box.width / 2, y: box.y + box.height / 2 + 4, "text-anchor": "middle" }, state.name)));
@@ -112,7 +113,7 @@
 					element("h2", {}, machine.name),
 					running ? element("span", { class: "badge" }, "running") : null,
 					element("span", { class: "muted" }, notes)),
-				draw(machine, running)));
+				draw(machine, running, running ? status.activeState : machine.current)));
 		}
 	}
 
@@ -141,14 +142,12 @@
 		const now = build.status || {};
 		statuses[build.name] = now;
 		if (!build.running) delete graphs[build.name];
-		if (build.name === chosen && (before.active !== now.active || before.activeState !== now.activeState || !build.running)) {
-			// The machines keep their current state in the graph only as of the load; the status says where they are now.
-			const graph = graphs[build.name];
-			if (graph && graph.machines) {
-				for (const machine of graph.machines) if (machine.name === now.active) machine.current = now.activeState;
-			}
-			render();
+		// A machine that stops running stays where it was: that is where it goes on from.
+		const graph = graphs[build.name];
+		if (graph && graph.machines && before.active && before.active !== now.active) {
+			for (const machine of graph.machines) if (machine.name === before.active) machine.current = before.activeState;
 		}
+		if (build.name === chosen && (before.active !== now.active || before.activeState !== now.activeState || !build.running)) render();
 	});
 </script>
 </body>
