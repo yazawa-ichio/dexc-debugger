@@ -136,7 +136,8 @@ namespace Dexc.Telemetry.CodeGen
 		/// <summary>
 		/// Puts the measuring of <c>TelemetryMethodAttribute</c> in, where the symbols keep its detail. A method's own
 		/// attribute wins over its type's. Through the type, constructors, accessors and code the compiler made are left
-		/// out. Async methods and iterators are left out either way: their body only starts the state machine.
+		/// out. An async method is measured from its first call to its completion. Iterators are left out: their body only
+		/// makes the state machine, and nothing marks when it is done.
 		/// </summary>
 		/// <returns>Whether anything changed.</returns>
 		internal static bool InstrumentMethods(ModuleDefinition module, ICollection<string> defines, Func<string, SourceSymbols> readSource, List<TelemetryDiagnostic> diagnostics)
@@ -150,7 +151,7 @@ namespace Dexc.Telemetry.CodeGen
 				{
 					var own = MethodAttribute(method);
 					var attribute = own ?? typeAttribute;
-					if (attribute == null || !method.HasBody || method.IsConstructor || IsStateMachine(method))
+					if (attribute == null || !method.HasBody || method.IsConstructor || IsIterator(method))
 					{
 						continue;
 					}
@@ -177,7 +178,9 @@ namespace Dexc.Telemetry.CodeGen
 								break;
 						}
 					}
-					var point = method.DebugInformation.HasSequencePoints ? method.DebugInformation.SequencePoints.FirstOrDefault(sequence => !sequence.IsHidden) : null;
+					var machine = AsyncMachine(method);
+					// The lines of an async method are in its state machine: the method itself only starts it.
+					var point = FirstPoint(method) ?? (machine == null ? null : FirstPoint(MethodInstrumenter.MoveNext(machine)));
 					if (options.Every < 1 || options.PerFrame < 1)
 					{
 						diagnostics.Add(TelemetryDiagnostic.Error(point?.Document.Url, point?.StartLine ?? 0, point?.StartColumn ?? 0, "TelemetryMethod needs Every and PerFrame of one or more: " + method.FullName));
@@ -189,6 +192,18 @@ namespace Dexc.Telemetry.CodeGen
 						continue;
 					}
 					var name = method.DeclaringType.FullName.Replace('/', '.') + "." + method.Name;
+					if (machine != null)
+					{
+						if (MethodInstrumenter.WrapAsync(method, machine, attribute.AttributeType.Scope, module.Assembly.Name.Name, name, options, out var problem))
+						{
+							changed = true;
+						}
+						else
+						{
+							diagnostics.Add(TelemetryDiagnostic.Warning(point?.Document.Url, point?.StartLine ?? 0, point?.StartColumn ?? 0, "TelemetryMethod left this async method as written, because " + problem + ": " + method.FullName));
+						}
+						continue;
+					}
 					MethodInstrumenter.Wrap(method, attribute.AttributeType.Scope, module.Assembly.Name.Name, name, options);
 					changed = true;
 				}
@@ -196,17 +211,29 @@ namespace Dexc.Telemetry.CodeGen
 			return changed;
 		}
 
+		static SequencePoint FirstPoint(MethodDefinition method)
+		{
+			return method != null && method.DebugInformation.HasSequencePoints ? method.DebugInformation.SequencePoints.FirstOrDefault(sequence => !sequence.IsHidden) : null;
+		}
+
 		static CustomAttribute MethodAttribute(ICustomAttributeProvider provider)
 		{
 			return provider.CustomAttributes.FirstOrDefault(attribute => attribute.AttributeType.FullName == MethodAttributeType);
 		}
 
-		static bool IsStateMachine(MethodDefinition method)
+		/// <summary>An iterator, async or not: its body only makes the state machine, and nothing marks when it is done.</summary>
+		static bool IsIterator(MethodDefinition method)
 		{
 			return method.CustomAttributes.Any(attribute =>
-				attribute.AttributeType.FullName == "System.Runtime.CompilerServices.AsyncStateMachineAttribute"
-				|| attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IteratorStateMachineAttribute"
+				attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IteratorStateMachineAttribute"
 				|| attribute.AttributeType.FullName == "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute");
+		}
+
+		/// <summary>The state machine of an async method, or null for any other method.</summary>
+		static TypeDefinition AsyncMachine(MethodDefinition method)
+		{
+			var attribute = method.CustomAttributes.FirstOrDefault(candidate => candidate.AttributeType.FullName == "System.Runtime.CompilerServices.AsyncStateMachineAttribute");
+			return (attribute?.ConstructorArguments[0].Value as TypeReference)?.Resolve();
 		}
 
 		static bool IsCompilerGenerated(MethodDefinition method)

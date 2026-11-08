@@ -22,5 +22,10 @@ namespace Dexc.Telemetry.CodeGen
 		{
 			return new TelemetryDiagnostic(true, file, line, column, message);
 		}
+
+		internal static TelemetryDiagnostic Warning(string file, int line, int column, string message)
+		{
+			return new TelemetryDiagnostic(false, file, line, column, message);
+		}
 	}
 }

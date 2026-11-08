@@ -6,7 +6,8 @@ namespace Dexc.Telemetry
 	/// Records each call of the method as a span during a capture. On a class or struct it covers the methods declared
 	/// there, except constructors, property and event accessors, and code the compiler made. The attribute of a method wins
 	/// over that of its type. The IL processing puts the measuring in at build time, only where the compile symbols keep
-	/// <see cref="Detail"/>; without them the method is left as written. Async methods and iterators are not measured.
+	/// <see cref="Detail"/>; without them the method is left as written. An async method is measured from its first call
+	/// to its completion, and its span is not the parent of the calls made meanwhile. Iterators are not measured.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
 	public sealed class TelemetryMethodAttribute : Attribute

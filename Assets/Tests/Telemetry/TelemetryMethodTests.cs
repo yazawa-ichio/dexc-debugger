@@ -2,12 +2,14 @@
 #define DEXC_TELEMETRY_DETAIL_DETAILED
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Dexc.Telemetry;
 using NUnit.Framework;
+using UnityEngine.TestTools;
 using Field = DexcDebugger.Tests.Telemetry.ProtobufTestReader.Field;
 
 namespace DexcDebugger.Tests.Telemetry
@@ -77,6 +79,27 @@ namespace DexcDebugger.Tests.Telemetry
 		[TelemetryMethod]
 		internal static void MainOnly()
 		{
+		}
+
+		[TelemetryMethod]
+		internal static async Task<int> LaterAsync(int value)
+		{
+			await Task.Yield();
+			return value + 1;
+		}
+
+		[TelemetryMethod]
+		internal static async Task FailsAsync()
+		{
+			await Task.Yield();
+			throw new InvalidOperationException("measured");
+		}
+
+		[TelemetryMethod]
+		internal static async Task<int> AwayAsync()
+		{
+			await Task.Run(() => 1).ConfigureAwait(false);
+			return 2;
 		}
 	}
 
@@ -262,6 +285,43 @@ namespace DexcDebugger.Tests.Telemetry
 				.Select(field => ProtobufTestReader.Read(field.Bytes))
 				.Single(attribute => attribute.Single(field => field.Number == 1).Text == "thread.id");
 			Assert.That(thread, Is.Not.Null);
+		}
+
+		static IEnumerator Wait(Task task)
+		{
+			while (!task.IsCompleted)
+			{
+				yield return null;
+			}
+		}
+
+		[UnityTest]
+		public IEnumerator AnAsyncCallRunsFromItsStartToItsCompletion()
+		{
+			m_Root.Capture(1, TelemetryDetail.Detailed, false);
+			Frame();
+			var later = Measured.LaterAsync(3);
+			Measured.Outer(1);
+			var fails = Measured.FailsAsync();
+			var away = Measured.AwayAsync();
+			yield return Wait(later);
+			yield return Wait(fails);
+			yield return Wait(away);
+			Frame();
+			m_Root.Flush();
+
+			Assert.That(later.Result, Is.EqualTo(4));
+			Assert.That(fails.Exception.InnerException, Is.TypeOf<InvalidOperationException>());
+			Assert.That(away.Result, Is.EqualTo(2));
+			var spans = Spans();
+			var frame = spans.Single(span => Name(span) == "unity.frame");
+			Assert.That(spans.Select(Name), Does.Contain(Prefix + "Measured.LaterAsync"), string.Join(", ", spans.Select(Name)));
+			var measured = Named(spans, "Measured.LaterAsync").Single();
+			Assert.That(Id(Named(spans, "Measured.Outer").Single(), 4), Is.EqualTo(Id(frame, 2)), "the call after the first await is not under the async one");
+			Assert.That(Id(measured, 4), Is.EqualTo(Id(frame, 2)));
+			Assert.That(measured.Single(field => field.Number == 8).Value, Is.GreaterThan(measured.Single(field => field.Number == 7).Value), "it ended after the await");
+			Assert.That(Named(spans, "Measured.FailsAsync").Count, Is.EqualTo(1));
+			Assert.That(Named(spans, "Measured.AwayAsync").Count, Is.EqualTo(1), "an end on another thread is written too");
 		}
 	}
 }

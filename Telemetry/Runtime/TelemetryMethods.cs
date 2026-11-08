@@ -73,7 +73,7 @@ namespace Dexc.Telemetry
 			m_Dropped = metrics.Counter("dexc.telemetry.method_calls.dropped", "{call}");
 		}
 
-		internal TelemetryMethodProbe Enter(string scope, string name, TelemetryDetail detail, int every, int perFrame, bool anyThread)
+		internal TelemetryMethodProbe Enter(string scope, string name, TelemetryDetail detail, int every, int perFrame, bool anyThread, bool isAsync)
 		{
 			if (!m_Capture.IsActive || detail > m_Metrics.Detail)
 			{
@@ -103,18 +103,25 @@ namespace Dexc.Telemetry
 			{
 				span.Set("dexc.method.every", every);
 			}
-			m_Stack = m_Stack ?? new TelemetryContext[StackCapacity];
-			if (m_Depth < StackCapacity)
+			if (!isAsync)
 			{
-				m_Stack[m_Depth] = span.Context;
+				m_Stack = m_Stack ?? new TelemetryContext[StackCapacity];
+				if (m_Depth < StackCapacity)
+				{
+					m_Stack[m_Depth] = span.Context;
+				}
+				m_Depth++;
 			}
-			m_Depth++;
-			return new TelemetryMethodProbe(this, span.Index, span.Generation);
+			return new TelemetryMethodProbe(this, span.Index, span.Generation, isAsync);
 		}
 
-		internal void Exit(int index, int generation)
+		/// <summary>The end of a call. That of an async method may come on another thread, which the span takes care of.</summary>
+		internal void Exit(int index, int generation, bool isAsync)
 		{
-			m_Depth--;
+			if (!isAsync)
+			{
+				m_Depth--;
+			}
 			m_Traces.End(index, generation);
 		}
 
