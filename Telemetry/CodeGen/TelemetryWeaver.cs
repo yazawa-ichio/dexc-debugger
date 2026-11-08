@@ -154,7 +154,7 @@ namespace Dexc.Telemetry.CodeGen
 				{
 					var own = MethodAttribute(method);
 					var attribute = own ?? typeAttribute;
-					if (attribute == null || !method.HasBody || method.IsConstructor || IsIterator(method))
+					if (attribute == null || !method.HasBody || method.IsConstructor || IsIterator(method) || IsBurst(method))
 					{
 						continue;
 					}
@@ -228,13 +228,13 @@ namespace Dexc.Telemetry.CodeGen
 			var changed = false;
 			foreach (var type in module.GetTypes())
 			{
-				if (IsCompilerGenerated(type) || MethodAttribute(type) != null)
+				if (IsCompilerGenerated(type) || MethodAttribute(type) != null || IsBurst(type))
 				{
 					continue;
 				}
 				foreach (var method in type.Methods)
 				{
-					if (!method.HasBody || method.IsConstructor || method.IsSpecialName || IsCompilerGenerated(method) || IsIterator(method) || MethodAttribute(method) != null)
+					if (!method.HasBody || method.IsConstructor || method.IsSpecialName || IsCompilerGenerated(method) || IsIterator(method) || MethodAttribute(method) != null || IsBurst(method))
 					{
 						continue;
 					}
@@ -309,6 +309,19 @@ namespace Dexc.Telemetry.CodeGen
 			var added = new AssemblyNameReference(RuntimeAssembly, new Version(0, 0, 0, 0));
 			module.AssemblyReferences.Add(added);
 			return added;
+		}
+
+		/// <summary>
+		/// Burst compiles the method, or the job type, to native code that cannot call back into the runtime. A call put in
+		/// would make Burst fail.
+		/// </summary>
+		static bool IsBurst(ICustomAttributeProvider provider)
+		{
+			if (provider.CustomAttributes.Any(attribute => attribute.AttributeType.FullName == "Unity.Burst.BurstCompileAttribute"))
+			{
+				return true;
+			}
+			return provider is MethodDefinition method && IsBurst(method.DeclaringType);
 		}
 
 		static bool IsCompilerGenerated(TypeDefinition type)

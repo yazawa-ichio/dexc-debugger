@@ -338,6 +338,9 @@ DexcTelemetry.UnwatchAll();
 | このメソッドを`Watch`している（1フレーム1000回、上限32） | 平均45ns |
 
 - コンストラクター、アクセサー、コンパイラーが作ったコード、イテレーター、`TelemetryMethodAttribute`の付いたメソッドは選ばない
+- `BurstCompile`の付いたメソッドと型は、属性でもWatchでも計測しない。Burstはネイティブにコンパイルし、ランタイムを呼べないので、入れた呼び出しでBurstのコンパイルが失敗するためである
+- `DEXC_TELEMETRY_WATCH`のあるアセンブリは、コンパイルのたびにCecilで読み書きする。選ぶ関数があるとき、または`assemblies`の無いプリセットでは、シンボルのあるすべてのアセンブリが対象になり、その分コンパイルが遅くなる
+- `Watch`と`Unwatch`はmain threadから呼ぶ
 - `Dexc.Telemetry`を参照していないアセンブリも選べる。その場合は参照を足す
 
 ### プリセット

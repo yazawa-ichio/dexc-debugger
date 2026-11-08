@@ -73,6 +73,12 @@ namespace DexcDebugger.Tests.Telemetry
 		[SetUp]
 		public void SetUp()
 		{
+			var add = typeof(Targets).GetMethod(nameof(Targets.Add), BindingFlags.NonPublic | BindingFlags.Static);
+			Assert.That(
+				add.GetMethodBody().GetILAsByteArray().Length,
+				Is.GreaterThan(20),
+				"The preset Tests of ProjectSettings/DexcTelemetryProfiles.json must be active. UserSettings/DexcTelemetryProfiles.json may choose another one."
+			);
 			TelemetryRoot.Reset();
 			m_Root = TelemetryRoot.Current;
 			m_Traces = new MemoryStream();
