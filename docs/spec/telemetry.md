@@ -314,7 +314,8 @@ sealed class Stage { }
 - 状態機械がコンパイラーの通常の形でなければ、警告を出してそのままにする。EditorのDebugのコンパイル（状態機械はクラス）で確かめた。Releaseのコンパイル（状態機械は構造体）は最後のPlayerの確認で確かめる
 - イテレーターは計測しない。本体が状態機械を作るだけで、終わりを示す呼び出しが無いためである
 - 同じ名前のオーバーロードは、間引きと上限を共有する
-- 記録した呼び出しには確保を付ける。ランタイムがスレッドの確保量を数えるなら、前後の`GC.GetAllocatedBytesForCurrentThread`の差を`dexc.method.allocated_bytes`にする。数えないとき（Editorは常に0を返す）は、Profilerの`Recorder("GC.Alloc")`で確保の回数を`dexc.method.allocations`にする。1つのrecorderは入れ子にできないので、計測中の呼び出しの一番外側だけで数える。asyncの呼び出しには付けない。通常ビルドでどちらが使えるかは、最後のPlayerの確認で確かめる
+- 記録した呼び出しには確保を付ける。ランタイムがスレッドの確保量を数えるなら、前後の`GC.GetAllocatedBytesForCurrentThread`の差を`dexc.method.allocated_bytes`にする。数えないとき（Editorは常に0を返す）は、Profilerの`Recorder("GC.Alloc")`で確保の回数を`dexc.method.allocations`にする。1つのrecorderは入れ子にできないので、計測中の呼び出しの一番外側だけで数える。asyncの呼び出しには付けない
+- どちらの方法も、最初に1回確保して数えられるかを試し、数えられなければ確保は記録しない。0と誤って記録しないためである。WindowsのIL2CPPの実測（2026-11-08）では、`GC.GetAllocatedBytesForCurrentThread`はDevelopment Buildでも通常ビルドでも差が0で、例外は投げなかった。`Recorder`はどちらも有効と答えるが、数えたのはDevelopment Buildだけだった。通常ビルドでは呼び出しごとの確保は取れない
 
 ### Watch
 

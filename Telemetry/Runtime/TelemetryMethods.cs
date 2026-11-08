@@ -283,7 +283,9 @@ namespace Dexc.Telemetry
 
 		/// <summary>
 		/// The allocated bytes of this thread when the runtime counts them. Otherwise the Profiler counts the allocations,
-		/// only around the outermost call, since one recorder cannot be nested.
+		/// only around the outermost call, since one recorder cannot be nested. Each way is tried once with an allocation:
+		/// in an IL2CPP Player the bytes never move, and outside a Development Build the recorder is valid but counts nothing.
+		/// Without either, nothing is recorded rather than a zero.
 		/// </summary>
 		long BeginAllocation(int depth)
 		{
@@ -292,25 +294,36 @@ namespace Dexc.Telemetry
 				var before = GC.GetAllocatedBytesForCurrentThread();
 				GC.KeepAlive(new byte[64]);
 				m_CountsBytes = GC.GetAllocatedBytesForCurrentThread() != before;
+				if (!m_CountsBytes.Value)
+				{
+					var recorder = Recorder.Get("GC.Alloc");
+					if (recorder.isValid)
+					{
+						StartRecorder(recorder);
+						GC.KeepAlive(new byte[64]);
+						recorder.enabled = false;
+						m_Allocations = recorder.sampleBlockCount > 0 ? recorder : null;
+					}
+				}
 			}
 			if (m_CountsBytes.Value)
 			{
 				return GC.GetAllocatedBytesForCurrentThread();
 			}
-			if (depth > 0)
+			if (depth > 0 || m_Allocations == null)
 			{
 				return NoAllocation;
 			}
-			m_Allocations = m_Allocations ?? Recorder.Get("GC.Alloc");
-			if (!m_Allocations.isValid)
-			{
-				return NoAllocation;
-			}
-			// Turning it off first clears what it held, as the allocation check of the Unity tests does.
-			m_Allocations.enabled = false;
-			m_Allocations.FilterToCurrentThread();
-			m_Allocations.enabled = true;
+			StartRecorder(m_Allocations);
 			return AllocationsByRecorder;
+		}
+
+		/// <summary>Turning it off first clears what it held, as the allocation check of the Unity tests does.</summary>
+		static void StartRecorder(Recorder recorder)
+		{
+			recorder.enabled = false;
+			recorder.FilterToCurrentThread();
+			recorder.enabled = true;
 		}
 
 		/// <summary>Counts the call, and says whether it is recorded. A call left out is skipped by thinning or dropped by the cap.</summary>
