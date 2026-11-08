@@ -11,7 +11,7 @@ namespace Dexc.Telemetry
 		{
 			if (paused)
 			{
-				Root.Persist();
+				Root.Pause();
 			}
 		}
 

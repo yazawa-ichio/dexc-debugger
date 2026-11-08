@@ -131,6 +131,37 @@ namespace Dexc.Telemetry
 			TelemetryRoot.Current.Methods.UnwatchAll();
 		}
 
+		/// <summary>
+		/// Starts sending the files to an OTLP/HTTP endpoint, as the Push rules of the specification say: every interval, when
+		/// <see cref="Seal"/> closes files, and when the application is paused, without waiting there. What is sent is kept
+		/// beside each file, so a restart does not send it twice, and a file sent whole is deleted. Use it or the taking of
+		/// files (<see cref="Files"/>), not both: both delete what they took. The logs are not sent unless the options say so.
+		/// It ends with <see cref="Stop"/>.
+		/// </summary>
+		/// <returns>False when telemetry is not running or is already sending.</returns>
+		/// <exception cref="ArgumentException">The endpoint is missing, or a size or time is zero or less.</exception>
+		public static bool StartUpload(TelemetryUploadOptions options)
+		{
+			if (options == null || string.IsNullOrEmpty(options.Endpoint))
+			{
+				throw new ArgumentException("The upload needs an endpoint.", nameof(options));
+			}
+			if (options.MaximumRequestBytes <= 0 || options.IntervalSeconds <= 0 || options.TimeoutSeconds <= 0)
+			{
+				throw new ArgumentException("The request size, the interval and the timeout must be above zero.", nameof(options));
+			}
+			return TelemetryRoot.Current.StartUpload(options, Time.realtimeSinceStartupAsDouble);
+		}
+
+		/// <summary>True between <see cref="StartUpload"/> and <see cref="StopUpload"/> or <see cref="Stop"/>.</summary>
+		public static bool IsUploading => TelemetryRoot.Current.IsUploading;
+
+		/// <summary>Stops sending. A request under way is left, and sent again from where it was at the next start.</summary>
+		public static void StopUpload()
+		{
+			TelemetryRoot.Current.StopUpload();
+		}
+
 		/// <summary>Writes what is left and closes the file. Does nothing when not running.</summary>
 		public static void Stop()
 		{

@@ -33,6 +33,7 @@ namespace Dexc.Telemetry
 		TelemetryDriver m_Driver;
 		TelemetrySources m_Sources;
 		TelemetryFileSet m_Files;
+		TelemetryUploader m_Uploader;
 		double m_Interval;
 		double m_NextExport;
 		double m_RecordInterval;
@@ -44,6 +45,8 @@ namespace Dexc.Telemetry
 		internal bool IsRunning => m_MetricsFrames != null;
 
 		internal bool IsCapturing => m_Capture.IsCapturing;
+
+		internal bool IsUploading => m_Uploader != null;
 
 		TelemetryRoot()
 		{
@@ -143,6 +146,31 @@ namespace Dexc.Telemetry
 			m_Capture.RequestStop();
 		}
 
+		/// <summary>Starts sending the files of the folder. False when not running with files, or already sending.</summary>
+		internal bool StartUpload(TelemetryUploadOptions options, double now)
+		{
+			if (!IsRunning || m_Files == null || m_Uploader != null)
+			{
+				return false;
+			}
+			m_Uploader = new TelemetryUploader(options, m_Files, Metrics, now);
+			return true;
+		}
+
+		/// <summary>Stops sending. A request under way is left; it is sent again at the next start.</summary>
+		internal void StopUpload()
+		{
+			m_Uploader?.Dispose();
+			m_Uploader = null;
+		}
+
+		/// <summary>The application is paused: what is written goes to the disk, and the sending starts without waiting.</summary>
+		internal void Pause()
+		{
+			Persist();
+			m_Uploader?.Pause();
+		}
+
 		void OnPlayerLoop()
 		{
 			OnFrame(Time.unscaledDeltaTime, Time.frameCount);
@@ -191,6 +219,7 @@ namespace Dexc.Telemetry
 		/// <summary>Writes at the interval. A capture writes every frame instead, and the interval starts again after it.</summary>
 		internal void Tick(double now)
 		{
+			m_Uploader?.Update(now);
 			if (IsRunning && now >= m_NextRecordFlush)
 			{
 				m_NextRecordFlush = now + m_RecordInterval;
@@ -275,6 +304,7 @@ namespace Dexc.Telemetry
 				Fail(exception);
 			}
 			WaitWritten();
+			m_Uploader?.Kick();
 		}
 
 		/// <summary>Writes everything and has it reach the disk: the application may not come back.</summary>
@@ -373,6 +403,7 @@ namespace Dexc.Telemetry
 			m_Sources?.Dispose();
 			m_Sources = null;
 			m_Capture.End();
+			StopUpload();
 			// What the frames queued, their closing included, is written before the thread ends.
 			m_Files?.Writing.Stop(TimeSpan.FromSeconds(WaitSeconds));
 			m_Files = null;

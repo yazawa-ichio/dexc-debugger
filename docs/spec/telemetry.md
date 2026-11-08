@@ -328,6 +328,12 @@ DexcTelemetry.StopCapture();
 - 送る種類（metrics、logs、traces）は個別に止められる。Unityのログには任意の文字列が入りうるので、logsの送信は既定で止める
 - パッケージは端末やユーザーのIDを集めない。送信はゲームが呼んだときだけ始める
 - 1つのビルドではPushかPullのどちらかにする。どちらも受け渡した後にファイルを消すためである
+- APIは`DexcTelemetry.StartUpload(TelemetryUploadOptions)`、`StopUpload`、`IsUploading`。動いているテレメトリーにだけ付き、`Stop`で止まる。送る時期のうち「ファイルを閉じたとき」は`Seal`である。大きさで次のファイルへ移ったときは、次の60秒で送る
+- 送る対象は、閉じたファイル（前の実行のものを含む）と、このPlayerが書いている途中のファイルの最後の完全なフレームまで。ほかのPlayerが書いている途中のファイルは送らない
+- `.sent`は閉じた後の名前（`<name>.otlp.sent`）で持ち、名前が変わっても続く。フォルダーの上限で消えたファイルの`.sent`は消す。答えを待たずに中断で終わった分は次に送り直すので、同じ分が二度届くことがある（少なくとも1回）
+- 自分の数値: `dexc.telemetry.upload.size`（送った圧縮後のバイト数）、`.dropped`（捨てたフレーム）、`.rejected`（部分的な成功で拒否された件数）、`.retries`
+- 送信には`UnityWebRequest`を使う。パッケージは`com.unity.modules.unitywebrequest`に依存する。HTTPの宛先は、プロジェクトの「Allow downloads over HTTP」の設定に従う。Editorでは127.0.0.1へのHTTPで確かめた
+- 要求ごとの小さな確保（`UnityWebRequest`と処理の型、答えの本文）は避けられない。普段は60秒ごとに数回の要求で済む。溜まった分を続けて送る間は、要求ごとに確保が起きる
 
 ### CLI
 
