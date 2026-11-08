@@ -116,7 +116,7 @@ namespace Dexc.Telemetry
 			m_Folder = files?.Folder ?? m_Folder;
 			if (options.CollectUnityMetrics)
 			{
-				m_Sources = new TelemetrySources(Metrics);
+				m_Sources = new TelemetrySources(Metrics, Logs, options);
 			}
 			if (options.AnnotateScene)
 			{

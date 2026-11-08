@@ -35,6 +35,24 @@ namespace Dexc.Telemetry
 		/// </summary>
 		public bool AnnotateScene;
 
+		/// <summary>
+		/// A frame at least this long is a hitch: it is counted in <c>dexc.hitches</c> and written as the event
+		/// <c>dexc.hitch</c>, with what it cost, the annotations and where the player was. Zero turns it off.
+		/// </summary>
+		public double HitchMilliseconds = 100;
+
+		/// <summary>The most hitch events between two exports. The hitches beyond are still counted.</summary>
+		public int HitchEventsPerExport = 20;
+
+		/// <summary>Where the player is, for the hitches and the positions. Given by the game.</summary>
+		public ITelemetryLocation Location;
+
+		/// <summary>
+		/// Seconds between the events <c>dexc.position</c>, which say where the player is, for maps of where the game goes.
+		/// Zero, the default, writes none. Needs <see cref="Location"/>.
+		/// </summary>
+		public double PositionSeconds;
+
 		/// <summary>Whether to collect what is logged through Unity, with a <see cref="UnityLogAdapter"/>.</summary>
 		public bool CollectUnityLogs = true;
 

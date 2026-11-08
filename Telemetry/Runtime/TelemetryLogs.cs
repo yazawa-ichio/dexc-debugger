@@ -39,6 +39,9 @@ namespace Dexc.Telemetry
 			internal TelemetryValue Value2;
 			internal TelemetryValue Value3;
 
+			/// <summary>Attributes beyond the values of a template, for the records of the package itself.</summary>
+			internal KeyValuePair<string, TelemetryValue>[] Extra;
+
 			internal readonly TelemetryValue Value(int index)
 			{
 				switch (index)
@@ -296,6 +299,13 @@ namespace Dexc.Telemetry
 			if (entry.IsTemplate)
 			{
 				WriteTemplateValues(writer, entry);
+			}
+			if (entry.Extra != null)
+			{
+				foreach (var pair in entry.Extra)
+				{
+					WriteAttribute(writer, OtlpFields.LogRecordAttributes, pair.Key, 0, pair.Key.Length, pair.Value);
+				}
 			}
 			if (entry.Exception != null)
 			{

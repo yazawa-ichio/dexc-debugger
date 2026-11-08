@@ -36,6 +36,7 @@ namespace Dexc.Telemetry
 		TelemetryHistogram m_FrameAllocatedNow;
 		int m_AnnotationVersion = -1;
 		readonly TelemetryMetrics m_Metrics;
+		readonly TelemetryFrameEvents m_Events;
 		readonly TelemetryCounter m_LoadFrames;
 		readonly TelemetryCounter m_Collections;
 		readonly TelemetryHistogram m_SourceTime;
@@ -45,8 +46,12 @@ namespace Dexc.Telemetry
 		ProfilerRecorder m_Allocated;
 		int m_LastCollections;
 
-		internal TelemetrySources(TelemetryMetrics metrics)
+		internal TelemetrySources(TelemetryMetrics metrics, TelemetryLogs logs = null, TelemetryOptions options = null)
 		{
+			if (logs != null && options != null && (options.HitchMilliseconds > 0 || (options.PositionSeconds > 0 && options.Location != null)))
+			{
+				m_Events = new TelemetryFrameEvents(metrics, logs, options);
+			}
 			m_Metrics = metrics;
 			m_Annotations = metrics.Annotations;
 			m_LoadFrames = metrics.Counter("dexc.load.frames", "{frame}");
@@ -77,6 +82,12 @@ namespace Dexc.Telemetry
 		internal void OnFrame(double deltaSeconds)
 		{
 			var started = Stopwatch.GetTimestamp();
+			var milliseconds = deltaSeconds * MillisecondsPerSecond;
+			if (m_Events != null)
+			{
+				var mainThread = m_MainThread.Valid && m_MainThread.LastValue > 0 ? m_MainThread.LastValue * MillisecondsPerNanosecond : double.NaN;
+				m_Events.OnFrame(deltaSeconds, milliseconds, mainThread, m_Allocated.Valid ? m_Allocated.LastValue : -1, m_Metrics.LoadsInProgress > 0);
+			}
 			if (m_Metrics.LoadsInProgress > 0)
 			{
 				// A loading frame says how long the load takes, not how the game runs: the load has its own measure.
@@ -92,7 +103,7 @@ namespace Dexc.Telemetry
 				m_MainThreadTimeNow = m_Annotations.Apply(m_MainThreadTime);
 				m_FrameAllocatedNow = m_Annotations.Apply(m_FrameAllocated);
 			}
-			m_FrameTimeNow.Record(deltaSeconds * MillisecondsPerSecond, TelemetryDetail.Basic);
+			m_FrameTimeNow.Record(milliseconds, TelemetryDetail.Basic);
 			if (m_MainThread.Valid && m_MainThread.LastValue > 0)
 			{
 				m_MainThreadTimeNow.Record(m_MainThread.LastValue * MillisecondsPerNanosecond, TelemetryDetail.Basic);
@@ -107,6 +118,7 @@ namespace Dexc.Telemetry
 		/// <summary>Takes what only has to be read once per export.</summary>
 		internal void BeforeExport()
 		{
+			m_Events?.BeforeExport();
 			foreach (var sampled in m_Memory)
 			{
 				// Before its first frame a recorder reads zero, which is not what the memory is.
