@@ -34,6 +34,9 @@ namespace Dexc.Telemetry
 		TelemetryFileSet m_Files;
 		double m_Interval;
 		double m_NextExport;
+		double m_RecordInterval;
+		double m_NextRecordFlush;
+		string m_Folder;
 		bool m_RestartsInterval;
 		bool m_IsInPlayerLoop;
 
@@ -100,6 +103,9 @@ namespace Dexc.Telemetry
 			}
 			m_Interval = options.ExportIntervalSeconds;
 			m_NextExport = now + m_Interval;
+			m_RecordInterval = options.RecordFlushSeconds;
+			m_NextRecordFlush = now + m_RecordInterval;
+			m_Folder = files?.Folder ?? m_Folder;
 			if (options.CollectUnityMetrics)
 			{
 				m_Sources = new TelemetrySources(Metrics);
@@ -183,6 +189,11 @@ namespace Dexc.Telemetry
 		/// <summary>Writes at the interval. A capture writes every frame instead, and the interval starts again after it.</summary>
 		internal void Tick(double now)
 		{
+			if (IsRunning && now >= m_NextRecordFlush)
+			{
+				m_NextRecordFlush = now + m_RecordInterval;
+				FlushRecords();
+			}
 			if (!IsRunning || m_Capture.IsCapturing)
 			{
 				return;
@@ -222,6 +233,71 @@ namespace Dexc.Telemetry
 			}
 		}
 
+		/// <summary>Writes the logs and spans recorded so far, without the metrics, whose interval is their own.</summary>
+		void FlushRecords()
+		{
+			try
+			{
+				Logs.Drain(m_LogFrames);
+				Logs.Flush(m_LogFrames);
+				Methods.Drain();
+				Traces.Flush();
+			}
+			catch (IOException exception)
+			{
+				Fail(exception);
+			}
+		}
+
+		/// <summary>Writes everything and closes the files, which take their closed names, and goes on in new ones.</summary>
+		internal void Seal()
+		{
+			Flush();
+			if (!IsRunning)
+			{
+				return;
+			}
+			try
+			{
+				m_MetricsFrames.Rotate();
+				m_LogFrames.Rotate();
+				m_TraceFrames.Rotate();
+			}
+			catch (IOException exception)
+			{
+				Fail(exception);
+			}
+		}
+
+		/// <summary>Writes everything and has it reach the disk: the application may not come back.</summary>
+		internal void Persist()
+		{
+			Flush();
+			if (!IsRunning)
+			{
+				return;
+			}
+			try
+			{
+				m_MetricsFrames.FlushToDisk();
+				m_LogFrames.FlushToDisk();
+				m_TraceFrames.FlushToDisk();
+			}
+			catch (IOException exception)
+			{
+				Fail(exception);
+			}
+		}
+
+		/// <summary>The folder of the files: of the run, or of the last one. Null before the first run with files.</summary>
+		internal string Folder => m_Folder;
+
+		/// <summary>Whether the file is being written by this Player.</summary>
+		internal bool IsOpen(string path)
+		{
+			return m_Files != null && m_Files.IsOpen(path);
+		}
+
 		void ExportMetrics(long started)
 		{
 			m_Sources?.BeforeExport();
@@ -233,7 +309,7 @@ namespace Dexc.Telemetry
 		internal void Stop()
 		{
 			m_Capture.End();
-			Flush();
+			Persist();
 			Close();
 		}
 

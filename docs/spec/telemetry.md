@@ -261,7 +261,7 @@ DexcTelemetry.StopCapture();
 ## 実行
 
 - `DexcTelemetry.Start(options)`が実行ごとに新しいファイルを開き、`Stop`が残りを書いて閉じる。`Start`の前の記録は、`Start`の後の最初の書き出しに含まれる
-- ファイルは`<Directory>/metrics-<run>.otlp`、`logs-<run>.otlp`、`traces-<run>.otlp`である。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
+- ファイルは`<Directory>/metrics-<run>.otlp`、`logs-<run>.otlp`、`traces-<run>.otlp`である。書いている間は名前の後に`.open`が付く（[受け渡し](#書き出しと受け渡し)）。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
 - `MaximumFileBytes`（既定8MiB）を超えると、フレームの切れ目で`logs-<run>-1.otlp`のように次のファイルへ移る
 - フォルダーが`MaximumDirectoryBytes`（既定64MiB）を超えると、書き込み中のものを除き、古い`.otlp`とキャプチャの`capture-*.raw`から消す。問題の直前の記録を残すためである。実行の開始時とファイルの切り替え時に確認する
 - Metricsの書き出しの間隔は既定60秒である。Metricsは区間の集計なので、メモリの量は間隔に関係しない。データの無い計器は書かず、すべて無ければフレームも書かない
@@ -270,6 +270,64 @@ DexcTelemetry.StopCapture();
 - 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない
 - Resourceには`service.name`、`service.version`、`service.instance.id`（実行ごとに固有）、`telemetry.sdk.name`と、`ResourceAttributes`を載せる
 - 記録の時刻は、rootを作ったときの`DateTime.UtcNow`に、`Stopwatch`の経過を足したものである。WindowsのIL2CPPのPlayerでは`DateTime.UtcNow`が約1ms刻みでしか進まず、メソッドのspanの長さが0になったためである（2026-11-08のPlayerの確認）
+
+## 書き出しと受け渡し
+
+データは必ずファイルへ先に書く。ファイルがそのまま、受け渡しを待つ列になる。サーバーがあればPlayerから送り（Push）、無ければホストがファイルを取りに行く（Pull）。数値は、OpenTelemetryの仕様（OTLP 1.11.1、SDKの環境変数）とCollector（exporterhelper、confighttp、fileexporter）の既定値に合わせ、合わせられないものは理由を書く。
+
+### フレーム
+
+| 信号 | 区切り | 本流の値 |
+|---|---|---|
+| logs、traces | 64KBか、最長`RecordFlushSeconds`（既定5秒）。Error以上はすぐ | SDKのspanは5秒・512件、ログは1秒・512件。64KBは記録500件ほどにあたる |
+| metrics | `ExportIntervalSeconds`（既定60秒）。キャプチャ中は毎フレーム | SDKは60秒 |
+
+- フレームを書くたびにOSへ渡す（`Stream.Flush()`）。プロセスが落ちても、渡したフレームは残る。ディスクへの確定（`Flush(true)`）は、アプリの中断と終了のときだけにする。毎回の確定は端末で重いためである
+- ログのSDKの1秒より長い5秒にするのは、送り先がネットワークでなくファイルで、区切るほどフレームごとのResourceとScopeが増えるためである
+
+### ファイルの状態
+
+- 書いている途中のファイルは`<signal>-<run>[-<n>].otlp.open`で、閉じたときに`.otlp`へ名前を変える。取りに行く側は`*.otlp`だけを取ればよい
+- 落ちて残った`.open`は、次の`Start`で、ほかの実行のものを`.otlp`に直す。末尾の書きかけのフレームは、読む側が捨てる
+- `DexcTelemetry.Seal()`は、ためている記録を書き出し、今のファイルを閉じて次のファイルに移る。Pullの直前に`eval`から呼ぶ
+
+### Pull（サーバーが無いとき）
+
+- ホストが閉じたファイルを取り、取った側が消す。消さなければ、フォルダーの上限で古いものから消える。ファイル名は実行と番号で一意なので、同じ名前を二度取らなければ重複しない
+- ファイルに直接触れられない環境のために、`DexcTelemetry.Files()`、`ReadFile(name, offset, buffer)`、`DeleteFile(name)`を持つ。運ぶ経路はパッケージに持たせない（Autopilotの接続はT9）
+- ホストのCLIの`pull`は、フォルダー（Windows、Editor）とadb（Android）から取る
+
+### Push（サーバーがあるとき）
+
+| 項目 | 規格 | 本流の値 |
+|---|---|---|
+| 要求 | 同じファイルの続いたフレームの本体を連結して1つの要求にする。protobufでは連結が繰り返しの欄の結合になるので、組み立て直さずに有効な`Export*ServiceRequest`になる | Collector 0.164.0で受け付けを確かめた |
+| 大きさ | 1要求1MiBまで（設定で変える）。1フレームが超えればそれだけで送る | OTLPの推奨の上限64MiB、confighttpの既定20MiB。Collectorの束ねの8192件に近い |
+| 時期 | 60秒ごと、ファイルを閉じたとき、アプリの中断のとき（待たない） | metricsの書き出し間隔と同じ |
+| 同時の数 | Playerは1つ | exporterhelperは10 |
+| 圧縮 | gzipを任意。既定は無し | 受ける側はgzipに必ず対応し、送る側は任意 |
+| 待ち時間 | 1要求30秒 | SDKの書き出しの待ち30秒 |
+| 再送 | 429、502、503、504と通信の失敗。`Retry-After`に従い、無ければ5秒から1.5倍、最大30秒、ばらつき付き。300秒で諦めても、ファイルは残して次の時期に試す | OTLPの仕様、exporterhelperの既定 |
+| 再送しない | 400などほかの4xxと5xxは、その分を捨てて数える。413は要求を半分に分けて送り直し、1フレームでも413なら捨てる。部分的な成功は拒否の数を数えて再送しない | OTLPの仕様。413の分け方はこちらの判断 |
+| 位置 | 送り終えた位置をファイルごとに`.sent`に残し、再起動しても二重に送らない。閉じて全部送ったファイルは両方消す | |
+| 費用 | 送信用の1MiBの領域を最初に1回確保して使い回す。ファイルの読み込みとgzipは別スレッド、UnityのAPIはmain threadだけ | |
+
+- 送る種類（metrics、logs、traces）は個別に止められる。Unityのログには任意の文字列が入りうるので、logsの送信は既定で止める
+- パッケージは端末やユーザーのIDを集めない。送信はゲームが呼んだときだけ始める
+- 1つのビルドではPushかPullのどちらかにする。どちらも受け渡した後にファイルを消すためである
+
+### CLI
+
+`Telemetry/Tools~/Cli/`の.NET 10のコンソールである。公式の`.proto`から生成したコードで読む。自作の書き出しと別の実装で読むので、互換の確認にもなる。
+
+| コマンド | 内容 |
+|---|---|
+| `dump` | 中身の要点を表示する |
+| `send` | Pushと同じ規格でcollectorへ送る |
+| `pull` | Pullの規格でファイルを取る |
+| `captures`、`cut` | キャプチャの区間の一覧を出し、同じ形式のファイルに切り出す |
+
+JSONへの変換は持たない。読むなら`dump`、外部の道具ならcollectorの出力（`fileexporter`など）を使う。
 
 ## IL処理
 

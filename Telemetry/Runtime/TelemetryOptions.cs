@@ -17,6 +17,12 @@ namespace Dexc.Telemetry
 		/// <summary>Seconds between writes of the metrics. Memory does not depend on this: metrics are totals of the interval.</summary>
 		public double ExportIntervalSeconds = 60;
 
+		/// <summary>
+		/// The longest a frame of logs or spans waits before it is written. A full frame (64KB) or an error goes out at once.
+		/// Shorter loses less in a crash and adds the resource to more frames.
+		/// </summary>
+		public double RecordFlushSeconds = 5;
+
 		/// <summary>The finest level recorded. It can only silence what the compile symbols kept.</summary>
 		public TelemetryDetail Detail = TelemetryDetail.Detailed;
 

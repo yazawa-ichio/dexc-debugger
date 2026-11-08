@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 namespace Dexc.Telemetry
@@ -22,9 +23,9 @@ namespace Dexc.Telemetry
 		public static string Start(TelemetryOptions options = null)
 		{
 			options = options ?? new TelemetryOptions();
-			if (options.ExportIntervalSeconds <= 0)
+			if (options.ExportIntervalSeconds <= 0 || options.RecordFlushSeconds <= 0)
 			{
-				throw new ArgumentOutOfRangeException(nameof(options), "The export interval must be above zero.");
+				throw new ArgumentOutOfRangeException(nameof(options), "The export interval and the record flush must be above zero.");
 			}
 			var root = TelemetryRoot.Current;
 			if (root.IsRunning)
@@ -127,6 +128,74 @@ namespace Dexc.Telemetry
 		public static void Flush()
 		{
 			TelemetryRoot.Current.Flush();
+		}
+
+		/// <summary>
+		/// Writes everything recorded and closes the files, which take their closed names, then goes on in new ones. Call it
+		/// just before the files are taken, as from an eval. Does nothing when not running.
+		/// </summary>
+		public static void Seal()
+		{
+			TelemetryRoot.Current.Seal();
+		}
+
+		/// <summary>
+		/// The telemetry files in the folder of the current or last run, or the default folder, oldest first. For taking them
+		/// where the files cannot be reached directly. Main thread.
+		/// </summary>
+		public static IReadOnlyList<TelemetryFile> Files()
+		{
+			var root = TelemetryRoot.Current;
+			var folder = Folder(root);
+			if (!Directory.Exists(folder))
+			{
+				return Array.Empty<TelemetryFile>();
+			}
+			return new DirectoryInfo(folder).GetFiles()
+				.Where(file => TelemetryFileSet.IsOwn(file.Name))
+				.OrderBy(file => file.LastWriteTimeUtc)
+				.Select(file => new TelemetryFile(file.Name, file.Length, file.Name.EndsWith(TelemetryFileSet.OpenExtension, StringComparison.OrdinalIgnoreCase)))
+				.ToList();
+		}
+
+		/// <summary>Reads part of a telemetry file into the buffer.</summary>
+		/// <returns>How many bytes were read: zero at the end of the file.</returns>
+		/// <exception cref="ArgumentException">The name is not a telemetry file of the folder.</exception>
+		public static int ReadFile(string name, long offset, byte[] buffer)
+		{
+			using (var stream = new FileStream(PathOf(name), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+			{
+				stream.Position = offset;
+				return stream.Read(buffer, 0, buffer.Length);
+			}
+		}
+
+		/// <summary>Deletes a telemetry file once it is taken. A file this Player is writing is not deleted.</summary>
+		/// <returns>Whether it was deleted.</returns>
+		/// <exception cref="ArgumentException">The name is not a telemetry file of the folder.</exception>
+		public static bool DeleteFile(string name)
+		{
+			var path = PathOf(name);
+			if (TelemetryRoot.Current.IsOpen(path) || !File.Exists(path))
+			{
+				return false;
+			}
+			File.Delete(path);
+			return true;
+		}
+
+		static string Folder(TelemetryRoot root)
+		{
+			return root.Folder ?? Path.Combine(Application.persistentDataPath, "Telemetry");
+		}
+
+		static string PathOf(string name)
+		{
+			if (string.IsNullOrEmpty(name) || Path.GetFileName(name) != name || !TelemetryFileSet.IsOwn(name))
+			{
+				throw new ArgumentException("Not a telemetry file: " + name, nameof(name));
+			}
+			return Path.Combine(Folder(TelemetryRoot.Current), name);
 		}
 
 		/// <summary>The counter of this name, made on first use.</summary>

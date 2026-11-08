@@ -42,8 +42,10 @@ namespace DexcDebugger.Tests.Telemetry
 		{
 			using (var frames = new TelemetryFileSet(m_Directory, "run", 1000, 10000).Open("logs"))
 			{
-				Assert.That(Path.GetFileName(frames.Path), Is.EqualTo("logs-run.otlp"));
+				Assert.That(Path.GetFileName(frames.Path), Is.EqualTo("logs-run.otlp.open"));
 			}
+
+			Assert.That(Files(), Is.EqualTo(new[] { "logs-run.otlp" }), "closing gives the closed name");
 		}
 
 		[Test]
@@ -52,11 +54,12 @@ namespace DexcDebugger.Tests.Telemetry
 			using (var frames = new TelemetryFileSet(m_Directory, "run", 20, 10000).Open("logs"))
 			{
 				frames.WriteFrame(new byte[8], 8);
-				Assert.That(Files(), Is.EqualTo(new[] { "logs-run.otlp" }), "still under the limit");
+				Assert.That(Files(), Is.EqualTo(new[] { "logs-run.otlp.open" }), "still under the limit");
 				frames.WriteFrame(new byte[8], 8);
-				Assert.That(Path.GetFileName(frames.Path), Is.EqualTo("logs-run-1.otlp"));
+				Assert.That(Path.GetFileName(frames.Path), Is.EqualTo("logs-run-1.otlp.open"));
+				Assert.That(Files(), Does.Contain("logs-run.otlp"), "the full one is closed");
 				frames.WriteFrame(new byte[20], 20);
-				Assert.That(Path.GetFileName(frames.Path), Is.EqualTo("logs-run-2.otlp"));
+				Assert.That(Path.GetFileName(frames.Path), Is.EqualTo("logs-run-2.otlp.open"));
 			}
 
 			Assert.That(new FileInfo(Path.Combine(m_Directory, "logs-run.otlp")).Length, Is.EqualTo(24), "two whole frames");
@@ -73,7 +76,7 @@ namespace DexcDebugger.Tests.Telemetry
 
 			using (new TelemetryFileSet(m_Directory, "run", 1000, 1300).Open("logs"))
 			{
-				Assert.That(Files(), Is.EqualTo(new[] { "logs-c.otlp", "logs-run.otlp", "metrics-b.otlp" }));
+				Assert.That(Files(), Is.EqualTo(new[] { "logs-c.otlp", "logs-run.otlp.open", "metrics-b.otlp" }));
 			}
 		}
 
@@ -86,7 +89,7 @@ namespace DexcDebugger.Tests.Telemetry
 
 			using (new TelemetryFileSet(m_Directory, "run", 1000, 100).Open("logs"))
 			{
-				Assert.That(Files(), Is.EqualTo(new[] { "logs-run.otlp", "notes.txt" }));
+				Assert.That(Files(), Is.EqualTo(new[] { "logs-run.otlp.open", "notes.txt" }));
 			}
 		}
 
@@ -114,6 +117,20 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
+		public void AFileLeftOpenByAnEndedRunIsClosedByTheNext()
+		{
+			Directory.CreateDirectory(m_Directory);
+			Old("logs-crashed.otlp.open", 100, 5);
+			var held = Path.Combine(m_Directory, "logs-other.otlp.open");
+			using (new FileStream(held, FileMode.Create, FileAccess.Write, FileShare.Read | FileShare.Delete))
+			{
+				new TelemetryFileSet(m_Directory, "run", 1000, 10).Trim();
+
+				Assert.That(Files(), Is.EqualTo(new[] { "logs-other.otlp.open" }), "the left one closed and went over the limit; the held one stays");
+			}
+		}
+
+		[Test]
 		public void TheFilesBeingWrittenAreKept()
 		{
 			var files = new TelemetryFileSet(m_Directory, "run", 10, 30);
@@ -127,7 +144,7 @@ namespace DexcDebugger.Tests.Telemetry
 					logs.WriteFrame(new byte[20], 20);
 				}
 
-				Assert.That(Files(), Does.Contain("metrics-run.otlp"));
+				Assert.That(Files(), Does.Contain("metrics-run.otlp.open"));
 				Assert.That(Files(), Does.Contain(Path.GetFileName(logs.Path)));
 				Assert.That(Files().Length, Is.LessThan(6), "the older parts of this run went");
 			}

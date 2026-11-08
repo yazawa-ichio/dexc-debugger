@@ -50,8 +50,13 @@ namespace DexcDebugger.Tests.Telemetry
 			return Directory.GetFiles(m_Directory, "logs-*").Single();
 		}
 
+		/// <summary>The text of the file, which may have taken its closed name since.</summary>
 		static string Text(string path)
 		{
+			if (!File.Exists(path) && path.EndsWith(".open"))
+			{
+				path = path.Substring(0, path.Length - ".open".Length);
+			}
 			return Encoding.UTF8.GetString(File.ReadAllBytes(path));
 		}
 
@@ -179,7 +184,7 @@ namespace DexcDebugger.Tests.Telemetry
 			var path = LogFile();
 			DexcTelemetry.Stop();
 
-			Assert.That(new FileInfo(path).Length, Is.Zero);
+			Assert.That(Text(path), Is.Empty);
 		}
 
 		[Test]

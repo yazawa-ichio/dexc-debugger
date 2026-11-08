@@ -43,11 +43,12 @@ namespace DexcDebugger.Tests.Telemetry
 		[Test]
 		public void AStartedRunWritesItsMetricsToItsOwnFile()
 		{
-			var path = DexcTelemetry.Start(Options());
+			var open = DexcTelemetry.Start(Options());
 			DexcTelemetry.Counter("hits").Add(3, TelemetryDetail.Basic);
 
 			DexcTelemetry.Stop();
 
+			var path = Closed(open);
 			Assert.That(DexcTelemetry.IsRunning, Is.False);
 			Assert.That(Path.GetDirectoryName(path), Is.EqualTo(m_Directory));
 			Assert.That(new FileInfo(path).Length, Is.GreaterThan(4));
@@ -73,7 +74,7 @@ namespace DexcDebugger.Tests.Telemetry
 			var path = DexcTelemetry.Start(Options());
 			DexcTelemetry.Stop();
 
-			Assert.That(new FileInfo(path).Length, Is.GreaterThan(4));
+			Assert.That(new FileInfo(Closed(path)).Length, Is.GreaterThan(4));
 		}
 
 		[Test]
@@ -154,8 +155,67 @@ namespace DexcDebugger.Tests.Telemetry
 
 			TelemetryRoot.Reset();
 
-			Assert.DoesNotThrow(() => File.Delete(path));
+			Assert.That(File.Exists(Closed(path)), Is.True);
+			Assert.DoesNotThrow(() => File.Delete(Closed(path)));
 			Assert.That(DexcTelemetry.IsRunning, Is.False);
+		}
+
+		static string Closed(string open)
+		{
+			Assert.That(open, Does.EndWith(".otlp.open"));
+			return open.Substring(0, open.Length - ".open".Length);
+		}
+
+		[Test]
+		public void SealingClosesTheFilesAndGoesOnInNewOnes()
+		{
+			var first = DexcTelemetry.Start(Options());
+			DexcTelemetry.Counter("hits").Add(1, TelemetryDetail.Basic);
+
+			DexcTelemetry.Seal();
+
+			var files = DexcTelemetry.Files();
+			Assert.That(files.Where(file => !file.IsOpen).Select(file => file.Name), Does.Contain(Path.GetFileName(Closed(first))));
+			Assert.That(files.Count(file => file.IsOpen), Is.EqualTo(3), "metrics, logs and traces go on");
+			Assert.That(ReadResource(Closed(first)), Does.Contain("service.name=bench"), "the records so far are in the closed file");
+		}
+
+		[Test]
+		public void AFileCanBeReadAndDeletedByName()
+		{
+			var open = DexcTelemetry.Start(Options());
+			DexcTelemetry.Counter("hits").Add(1, TelemetryDetail.Basic);
+			DexcTelemetry.Seal();
+			var name = Path.GetFileName(Closed(open));
+			var length = DexcTelemetry.Files().Single(file => file.Name == name).Length;
+
+			var buffer = new byte[length + 10];
+			Assert.That(DexcTelemetry.ReadFile(name, 0, buffer), Is.EqualTo(length));
+			Assert.That(DexcTelemetry.ReadFile(name, length, buffer), Is.Zero);
+
+			Assert.That(DexcTelemetry.DeleteFile(Path.GetFileName(DexcTelemetry.Files().First(file => file.IsOpen).Name)), Is.False, "this Player writes it");
+			Assert.That(DexcTelemetry.DeleteFile(name), Is.True);
+			Assert.That(DexcTelemetry.Files().Select(file => file.Name), Does.Not.Contain(name));
+			Assert.Throws<ArgumentException>(() => DexcTelemetry.ReadFile("../secret.txt", 0, buffer));
+			Assert.Throws<ArgumentException>(() => DexcTelemetry.DeleteFile("notes.txt"));
+		}
+
+		[Test]
+		public void LogsAreWrittenWithinTheRecordFlush()
+		{
+			var logs = new MemoryStream();
+			var root = TelemetryRoot.Current;
+			var options = Options();
+			options.RecordFlushSeconds = 5;
+			root.Start(new TelemetryFrameWriter(new MemoryStream()), new TelemetryFrameWriter(logs), new TelemetryFrameWriter(new MemoryStream()), options, new KeyValuePair<string, string>[0], 100);
+			// Emit, as an adapter does: Info is compiled away in a file without a log symbol.
+			root.Logs.Logger("Game").Emit(TelemetrySeverity.Info, "hello", null, false);
+
+			root.Tick(104.9);
+			Assert.That(logs.Length, Is.Zero);
+			root.Tick(105);
+
+			Assert.That(logs.Length, Is.GreaterThan(0), "long before the metrics interval");
 		}
 
 		static IEnumerable<string> ReadResource(string path)

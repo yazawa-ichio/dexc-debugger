@@ -46,6 +46,17 @@ namespace Dexc.Telemetry
 		{
 		}
 
+		/// <summary>Ends the file and goes on in the next one. Without files it does nothing.</summary>
+		internal virtual void Rotate()
+		{
+		}
+
+		/// <summary>Has the data reach the disk, beyond the operating system. It is slow, so only for when the application may not come back.</summary>
+		internal virtual void FlushToDisk()
+		{
+			Stream.Flush();
+		}
+
 		public virtual void Dispose()
 		{
 			Stream.Dispose();
