@@ -151,26 +151,7 @@ namespace Dexc.Telemetry.CodeGen
 		{
 			lock (m_Lock)
 			{
-				if (m_Selectors == null)
-				{
-					var found = new List<ITelemetryMethodSelector>();
-					foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-					{
-						var name = assembly.GetName().Name;
-						if (!name.StartsWith("Unity.", StringComparison.Ordinal) || !name.EndsWith(".CodeGen", StringComparison.Ordinal))
-						{
-							continue;
-						}
-						foreach (var type in assembly.GetTypes())
-						{
-							if (!type.IsAbstract && typeof(ITelemetryMethodSelector).IsAssignableFrom(type) && type.GetConstructor(Type.EmptyTypes) != null)
-							{
-								found.Add((ITelemetryMethodSelector)Activator.CreateInstance(type));
-							}
-						}
-					}
-					m_Selectors = found;
-				}
+				m_Selectors = m_Selectors ?? TelemetryWeaver.FindSelectors();
 				return m_Selectors;
 			}
 		}

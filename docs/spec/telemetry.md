@@ -344,6 +344,7 @@ DexcTelemetry.UnwatchAll();
 - `DEXC_TELEMETRY_WATCH`のあるアセンブリは、コンパイルのたびにCecilで読み書きする。選ぶ関数があるとき、または`assemblies`の無いプリセットでは、シンボルのあるすべてのアセンブリが対象になり、その分コンパイルが遅くなる
 - `Watch`と`Unwatch`はmain threadから呼ぶ
 - `Dexc.Telemetry`を参照していないアセンブリも選べる。その場合は参照を足す
+- ビルド済みのDLL（`Plugins`のものなど）は、コンパイルのIL処理に渡されない。Playerのビルドでは、スクリプトのコンパイルの後（`IPostBuildPlayerScriptDLLs`）にビルドの中のコピーを書き換えて、同じ計測を入れる。プロジェクトのファイルは変えないので、EditorのPlay Modeでは計測されない。この時点の`BuildReport`には、スクリプトのDLLとビルド済みのDLLが`Temp/StagingArea/Data/Managed`の`ManagedLibrary`として載る（2026-11-08のPlayerの確認）
 
 ### プリセット
 
@@ -367,7 +368,7 @@ DexcTelemetry.UnwatchAll();
 
 - ファイルを変えただけではコンパイルが起きない（Editorで確かめた）。そこで`DEXC_TELEMETRY_WATCH`のあるアセンブリには、IL処理が使った両方のファイルのハッシュを`AssemblyMetadataAttribute("DexcTelemetry.Profiles", hash)`で残す
 - Editorは、読み込んだときと前面に戻ったときに、読み込んだアセンブリのハッシュとファイルを比べる。違えばビルドのキャッシュを捨てて再コンパイルを要求する（`CompilationPipeline.RequestScriptCompilation(CleanBuildCache)`）
-- Playerのビルドは、前にコンパイルしたアセンブリを使い回すことがある。`IPostBuildPlayerScriptDLLs`でビルドのスクリプトのアセンブリのハッシュを比べ、違えばクリーンビルドを求めてビルドを止める。この時点の`BuildReport`にアセンブリが載るかは、最後のPlayerの確認で確かめる
+- Playerのビルドは、前にコンパイルしたアセンブリを使い回すことがある。`IPostBuildPlayerScriptDLLs`でビルドのスクリプトのアセンブリのハッシュを比べ、違えばクリーンビルドを求めてビルドを止める。プロファイルだけを変えてビルドすると、Playerのビルドは前のアセンブリを使い回し、この確認で止まった（2026-11-08のPlayerの確認）
 
 ### 関数で選ぶ
 

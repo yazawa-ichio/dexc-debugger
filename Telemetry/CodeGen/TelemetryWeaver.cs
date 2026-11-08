@@ -288,6 +288,31 @@ namespace Dexc.Telemetry.CodeGen
 			module.Assembly.CustomAttributes.Add(attribute);
 		}
 
+		/// <summary>
+		/// The selectors of the project, in the code generation assemblies of Unity, which are loaded both in the process
+		/// of the IL processing and in the Editor.
+		/// </summary>
+		internal static IReadOnlyList<ITelemetryMethodSelector> FindSelectors()
+		{
+			var found = new List<ITelemetryMethodSelector>();
+			foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+			{
+				var name = assembly.GetName().Name;
+				if (!name.StartsWith("Unity.", StringComparison.Ordinal) || !name.EndsWith(".CodeGen", StringComparison.Ordinal))
+				{
+					continue;
+				}
+				foreach (var type in assembly.GetTypes())
+				{
+					if (!type.IsAbstract && typeof(ITelemetryMethodSelector).IsAssignableFrom(type) && type.GetConstructor(Type.EmptyTypes) != null)
+					{
+						found.Add((ITelemetryMethodSelector)Activator.CreateInstance(type));
+					}
+				}
+			}
+			return found;
+		}
+
 		static bool Selected(IReadOnlyList<ITelemetryMethodSelector> selectors, string assembly, MethodDefinition method)
 		{
 			if (selectors.Count == 0)
