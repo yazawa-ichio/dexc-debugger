@@ -8,9 +8,9 @@ namespace Dexc.Telemetry
 	/// <summary>
 	/// The thread that writes the files, so that the game never waits for storage. The main thread copies each frame into
 	/// a buffer it borrows and puts it in a queue; this thread writes it, hands it to the operating system, changes files
-	/// and their names, and gives the buffer back. Work is done in the order it came. What waits to be written is capped:
-	/// a frame beyond the cap is dropped and counted, rather than memory growing. A WebGL Player has no threads and writes
-	/// at once.
+	/// and their names, and gives the buffer back. Work is done in the order it came. What waits to be written is capped,
+	/// rather than memory growing: a frame beyond the cap is dropped and counted, or with <see cref="TelemetryBacklog.Wait"/>
+	/// waits for room first. A WebGL Player has no threads and writes at once.
 	/// </summary>
 	internal sealed class TelemetryFileWriting
 	{
@@ -38,6 +38,8 @@ namespace Dexc.Telemetry
 		readonly Queue<Work> m_Queue = new Queue<Work>();
 		readonly Dictionary<int, Stack<byte[]>> m_Free = new Dictionary<int, Stack<byte[]>>();
 		readonly long m_MaximumPending;
+		readonly TelemetryBacklog m_Backlog;
+		readonly TimeSpan m_BacklogWait;
 		readonly bool m_Inline;
 		long m_Pending;
 		long m_FreeBytes;
@@ -46,15 +48,20 @@ namespace Dexc.Telemetry
 		Thread m_Thread;
 		bool m_Stopping;
 
-		internal TelemetryFileWriting(long maximumPending)
+		internal TelemetryFileWriting(long maximumPending, TelemetryBacklog backlog, TimeSpan backlogWait)
 		{
 			m_MaximumPending = maximumPending;
+			m_Backlog = backlog;
+			m_BacklogWait = backlogWait;
 #if UNITY_WEBGL && !UNITY_EDITOR
 			m_Inline = true;
 #endif
 		}
 
-		/// <summary>Borrows a buffer for a frame of this length, or none when the waiting frames are at the cap.</summary>
+		/// <summary>
+		/// Borrows a buffer for a frame of this length. At the cap it is none, or with <see cref="TelemetryBacklog.Wait"/>
+		/// one once the thread has made room, if that comes in time.
+		/// </summary>
 		internal byte[] Rent(int length)
 		{
 			var size = SmallestBuffer;
@@ -64,8 +71,20 @@ namespace Dexc.Telemetry
 			}
 			lock (m_Lock)
 			{
-				// One frame larger than the cap still goes out when nothing else waits.
-				if (m_Pending > 0 && m_Pending + size > m_MaximumPending)
+				if (IsFull(size) && m_Backlog == TelemetryBacklog.Wait && !m_Inline)
+				{
+					var until = DateTime.UtcNow + m_BacklogWait;
+					while (IsFull(size) && m_Error == null)
+					{
+						var left = until - DateTime.UtcNow;
+						if (left <= TimeSpan.Zero)
+						{
+							break;
+						}
+						Monitor.Wait(m_Lock, left);
+					}
+				}
+				if (IsFull(size))
 				{
 					m_Dropped++;
 					return null;
@@ -78,6 +97,12 @@ namespace Dexc.Telemetry
 				}
 			}
 			return new byte[size];
+		}
+
+		/// <summary>One frame larger than the cap still goes out when nothing else waits. Under the lock.</summary>
+		bool IsFull(int size)
+		{
+			return m_Pending > 0 && m_Pending + size > m_MaximumPending;
 		}
 
 		internal void Write(TelemetryFileFrames frames, byte[] buffer, int length)
@@ -228,6 +253,7 @@ namespace Dexc.Telemetry
 				lock (m_Lock)
 				{
 					m_Error = m_Error ?? exception;
+					Monitor.PulseAll(m_Lock);
 				}
 			}
 			finally
@@ -248,11 +274,13 @@ namespace Dexc.Telemetry
 		}
 
 		/// <summary>Keeps the buffer for the next frame, up to as many bytes as may wait, so that the pool stays bounded too.</summary>
-		void GiveBack(byte[] buffer)
+		internal void GiveBack(byte[] buffer)
 		{
 			lock (m_Lock)
 			{
 				m_Pending -= buffer.Length;
+				// The main thread may wait in Rent for this room.
+				Monitor.PulseAll(m_Lock);
 				if (m_FreeBytes + buffer.Length > m_MaximumPending)
 				{
 					return;

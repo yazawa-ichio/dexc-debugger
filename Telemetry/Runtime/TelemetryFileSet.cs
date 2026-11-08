@@ -26,9 +26,17 @@ namespace Dexc.Telemetry
 		readonly long m_MaximumDirectoryBytes;
 		readonly HashSet<string> m_Open = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-		internal TelemetryFileSet(string directory, string run, long maximumFileBytes, long maximumDirectoryBytes, long maximumPendingBytes = 4L * 1024 * 1024)
+		internal TelemetryFileSet(
+			string directory,
+			string run,
+			long maximumFileBytes,
+			long maximumDirectoryBytes,
+			long maximumPendingBytes = 4L * 1024 * 1024,
+			TelemetryBacklog backlog = TelemetryBacklog.Drop,
+			double backlogWaitSeconds = 1
+		)
 		{
-			Writing = new TelemetryFileWriting(maximumPendingBytes);
+			Writing = new TelemetryFileWriting(maximumPendingBytes, backlog, TimeSpan.FromSeconds(backlogWaitSeconds));
 			m_Directory = directory;
 			m_Run = run;
 			m_MaximumFileBytes = maximumFileBytes;

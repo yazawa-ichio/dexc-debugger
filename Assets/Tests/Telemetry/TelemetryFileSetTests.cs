@@ -186,6 +186,41 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
+		public void WaitingForRoomTakesTheBufferOnceTheThreadGivesOneBack()
+		{
+			var files = new TelemetryFileSet(m_Directory, "run", 1L << 30, 1L << 30, 8 * 1024, TelemetryBacklog.Wait, 5);
+			var first = files.Writing.Rent(4096);
+			files.Writing.Rent(4096);
+			var giving = System.Threading.Tasks.Task.Run(() =>
+			{
+				System.Threading.Thread.Sleep(100);
+				files.Writing.GiveBack(first);
+			});
+
+			var watch = System.Diagnostics.Stopwatch.StartNew();
+			var third = files.Writing.Rent(4096);
+
+			Assert.That(third, Is.Not.Null);
+			Assert.That(watch.ElapsedMilliseconds, Is.InRange(50, 4000), "it waited for the room");
+			Assert.That(files.Writing.TakeDropped(), Is.Zero);
+			giving.Wait();
+		}
+
+		[Test]
+		public void WaitingGivesUpAfterItsTime()
+		{
+			var files = new TelemetryFileSet(m_Directory, "run", 1L << 30, 1L << 30, 8 * 1024, TelemetryBacklog.Wait, 0.2);
+			files.Writing.Rent(4096);
+			files.Writing.Rent(4096);
+
+			var watch = System.Diagnostics.Stopwatch.StartNew();
+
+			Assert.That(files.Writing.Rent(4096), Is.Null);
+			Assert.That(watch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo(150));
+			Assert.That(files.Writing.TakeDropped(), Is.EqualTo(1));
+		}
+
+		[Test]
 		public void AFrameLargerThanTheCapStillGoesOutAlone()
 		{
 			var files = new TelemetryFileSet(m_Directory, "run", 1L << 30, 1L << 30, 1024);

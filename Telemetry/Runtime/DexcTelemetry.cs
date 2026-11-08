@@ -34,7 +34,15 @@ namespace Dexc.Telemetry
 			}
 			var directory = options.Directory ?? Path.Combine(Application.persistentDataPath, "Telemetry");
 			var run = Guid.NewGuid().ToString("N");
-			var files = new TelemetryFileSet(directory, run, options.MaximumFileBytes, options.MaximumDirectoryBytes, options.MaximumPendingBytes);
+			var files = new TelemetryFileSet(
+				directory,
+				run,
+				options.MaximumFileBytes,
+				options.MaximumDirectoryBytes,
+				options.MaximumPendingBytes,
+				options.WhenWritingFallsBehind,
+				options.BacklogWaitSeconds
+			);
 			var metrics = files.Open("metrics");
 			var logs = files.Open("logs");
 			var traces = files.Open("traces");

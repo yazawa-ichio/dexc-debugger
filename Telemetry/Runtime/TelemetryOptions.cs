@@ -59,6 +59,12 @@ namespace Dexc.Telemetry
 		/// </summary>
 		public long MaximumPendingBytes = 4L * 1024 * 1024;
 
+		/// <summary>What a frame does at <see cref="MaximumPendingBytes"/>: dropped by default, so that the game never waits.</summary>
+		public TelemetryBacklog WhenWritingFallsBehind = TelemetryBacklog.Drop;
+
+		/// <summary>How long the main thread waits for room with <see cref="TelemetryBacklog.Wait"/> before it drops the frame.</summary>
+		public double BacklogWaitSeconds = 1;
+
 		/// <summary>The limit of the folder. Above it the oldest files are deleted, of this run or earlier ones.</summary>
 		public long MaximumDirectoryBytes = 64L * 1024 * 1024;
 
