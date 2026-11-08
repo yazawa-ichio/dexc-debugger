@@ -288,6 +288,28 @@ DexcTelemetry.StopCapture();
 - `Set`、`SetError`、`Dispose`は残す。空のspanには何もしない
 - 詳細度が定数でない呼び出しと、引数の計算に分岐がある呼び出しは消さない。実行時の詳細度で止まる
 
+### 属性による計測
+
+```csharp
+[TelemetryMethod]
+void Spawn() { }
+
+[TelemetryMethod(Every = 4, PerFrame = 8, AnyThread = true)]
+void Path() { }
+
+[TelemetryMethod(Detail = TelemetryDetail.Standard)]
+sealed class Stage { }
+```
+
+- `TelemetryMethodAttribute`を付けたメソッドを、キャプチャの間だけ、呼び出しごとのspanにする。クラスや構造体に付けると、そこで宣言したメソッドが対象になる。コンストラクター、プロパティとイベントのアクセサー、コンパイラーが作ったコードは除く。メソッドの属性が型の属性より優先する
+- IL処理が、本体を`TelemetryMethodProbe.Enter`と`try`/`finally`の`Exit`で囲む。戻り値と例外はそのまま通る。`Detail`（既定はDetailed）をシンボルが残さなければ、何も入れない。シンボルはspanの除去と同じく、プロジェクトとファイルの先頭で決める
+- キャプチャの外では、`Enter`はrootを作らずに読み、空のプローブを返す。テレメトリーを使わないゲームにrootを作らせないためである
+- spanの名前は`名前空間.型.メソッド`、Scopeはアセンブリの名前である。親は、計測中のメソッドの中から呼ばれればそのspan、無ければキャプチャのフレームのspanである
+- `Every`でN回に1回に間引く。記録したspanには`dexc.method.every`を付ける。`PerFrame`（既定32）は1フレームに記録する上限である。間引いた呼び出しは`dexc.telemetry.method_calls.skipped`、上限やキューで落とした呼び出しは`dexc.telemetry.method_calls.dropped`で数える
+- 既定ではmain threadの呼び出しだけを記録する。`AnyThread`を有効にすると、ほかのスレッドの呼び出しも記録する。終わった呼び出しをロック付きのキュー（1024件）へ入れ、次のフレームにmain threadで書く。親はその時のフレームのspanで、`thread.id`を付ける
+- asyncのメソッドとイテレーターは計測しない。本体が状態機械を始めるだけだからである
+- 同じ名前のオーバーロードは、間引きと上限を共有する
+
 ## protobufの書き出し
 
 - エンコーダーは自作する。外部のprotobufライブラリとコード生成を使わない

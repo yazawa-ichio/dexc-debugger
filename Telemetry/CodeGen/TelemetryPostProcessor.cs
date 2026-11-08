@@ -54,7 +54,10 @@ namespace Dexc.Telemetry.CodeGen
 					using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(compiledAssembly.InMemoryAssembly.PeData), parameters))
 					{
 						TelemetryWeaver.Check(assembly.MainModule, diagnostics);
-						if (TelemetryWeaver.StripSpans(assembly.MainModule, new HashSet<string>(compiledAssembly.Defines), ReadSource))
+						var defines = new HashSet<string>(compiledAssembly.Defines);
+						var changed = TelemetryWeaver.StripSpans(assembly.MainModule, defines, ReadSource);
+						changed |= TelemetryWeaver.InstrumentMethods(assembly.MainModule, defines, ReadSource, diagnostics);
+						if (changed)
 						{
 							var pe = new MemoryStream();
 							var pdb = new MemoryStream();

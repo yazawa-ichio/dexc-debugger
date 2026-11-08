@@ -68,5 +68,28 @@ namespace DexcDebugger.Tests.Telemetry
 			evaluated++;
 			return "gone";
 		}
+
+		[TelemetryMethod]
+		static void FinerThanTheSymbol()
+		{
+		}
+
+		[TelemetryMethod(Detail = TelemetryDetail.Standard)]
+		static void KeptByTheSymbol()
+		{
+		}
+
+		[Test]
+		public void AMethodFinerThanTheSymbolIsNotMeasured()
+		{
+			int Size(string name)
+			{
+				var method = typeof(TelemetrySpanStripTests).GetMethod(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+				return method.GetMethodBody().GetILAsByteArray().Length;
+			}
+
+			Assert.That(Size(nameof(FinerThanTheSymbol)), Is.LessThan(4), "as written: an empty body");
+			Assert.That(Size(nameof(KeptByTheSymbol)), Is.GreaterThan(20), "the probe and its try block went in");
+		}
 	}
 }

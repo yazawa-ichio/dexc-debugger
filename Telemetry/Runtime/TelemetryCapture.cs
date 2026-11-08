@@ -40,6 +40,12 @@ namespace Dexc.Telemetry
 
 		internal bool IsCapturing => IsPending || IsActive;
 
+		/// <summary>The span of the frame being captured. Invalid outside a capture.</summary>
+		internal TelemetryContext FrameContext => m_Frame.Context;
+
+		/// <summary>Goes up by one at each frame of a capture, so that the calls of each frame can be counted.</summary>
+		internal int Frame { get; private set; }
+
 		/// <summary>Numbers the captures of a new run from one.</summary>
 		internal void BeginRun()
 		{
@@ -140,6 +146,7 @@ namespace Dexc.Telemetry
 
 		TelemetrySpan StartFrame(int frame)
 		{
+			Frame++;
 			var span = m_Traces.Start(m_Tracer, "unity.frame", m_Capture.Context, TelemetryDetail.Basic, false);
 			span.Set("unity.frame.number", frame);
 			return span;

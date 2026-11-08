@@ -13,6 +13,7 @@ namespace Dexc.Telemetry.CodeGen
 		const string LoggerType = "Dexc.Telemetry.TelemetryLogger";
 		const string ValueType = "Dexc.Telemetry.TelemetryValue";
 		const string TracerType = "Dexc.Telemetry.TelemetryTracer";
+		const string MethodAttributeType = "Dexc.Telemetry.TelemetryMethodAttribute";
 		internal const string DetailBasic = "DEXC_TELEMETRY_DETAIL_BASIC";
 		internal const string DetailStandard = "DEXC_TELEMETRY_DETAIL_STANDARD";
 		internal const string DetailDetailed = "DEXC_TELEMETRY_DETAIL_DETAILED";
@@ -43,24 +44,31 @@ namespace Dexc.Telemetry.CodeGen
 		/// <returns>Whether anything changed.</returns>
 		internal static bool StripSpans(ModuleDefinition module, ICollection<string> defines, Func<string, SourceSymbols> readSource)
 		{
-			var files = new Dictionary<string, SourceSymbols>();
+			var symbolsOf = Cached(readSource);
 			var changed = false;
 			foreach (var type in module.GetTypes())
 			{
 				foreach (var method in type.Methods.Where(method => method.HasBody))
 				{
-					changed |= StripSpans(method, defines, path =>
-					{
-						if (!files.TryGetValue(path, out var symbols))
-						{
-							symbols = readSource(path);
-							files.Add(path, symbols);
-						}
-						return symbols;
-					});
+					changed |= StripSpans(method, defines, symbolsOf);
 				}
 			}
 			return changed;
+		}
+
+		/// <summary>Reads each source file once.</summary>
+		static Func<string, SourceSymbols> Cached(Func<string, SourceSymbols> readSource)
+		{
+			var files = new Dictionary<string, SourceSymbols>();
+			return path =>
+			{
+				if (!files.TryGetValue(path, out var symbols))
+				{
+					symbols = readSource(path);
+					files.Add(path, symbols);
+				}
+				return symbols;
+			};
 		}
 
 		static bool StripSpans(MethodDefinition method, ICollection<string> defines, Func<string, SourceSymbols> symbolsOf)
@@ -123,6 +131,87 @@ namespace Dexc.Telemetry.CodeGen
 			}
 			body.OptimizeMacros();
 			return true;
+		}
+
+		/// <summary>
+		/// Puts the measuring of <c>TelemetryMethodAttribute</c> in, where the symbols keep its detail. A method's own
+		/// attribute wins over its type's. Through the type, constructors, accessors and code the compiler made are left
+		/// out. Async methods and iterators are left out either way: their body only starts the state machine.
+		/// </summary>
+		/// <returns>Whether anything changed.</returns>
+		internal static bool InstrumentMethods(ModuleDefinition module, ICollection<string> defines, Func<string, SourceSymbols> readSource, List<TelemetryDiagnostic> diagnostics)
+		{
+			var changed = false;
+			readSource = Cached(readSource);
+			foreach (var type in module.GetTypes())
+			{
+				var typeAttribute = MethodAttribute(type);
+				foreach (var method in type.Methods)
+				{
+					var own = MethodAttribute(method);
+					var attribute = own ?? typeAttribute;
+					if (attribute == null || !method.HasBody || method.IsConstructor || IsStateMachine(method))
+					{
+						continue;
+					}
+					if (own == null && (method.IsSpecialName || IsCompilerGenerated(method)))
+					{
+						continue;
+					}
+					var options = new MethodInstrumenter.Options { Detail = 3, Every = 1, PerFrame = 32 };
+					foreach (var property in attribute.Properties)
+					{
+						switch (property.Name)
+						{
+							case "Detail":
+								options.Detail = (int)property.Argument.Value;
+								break;
+							case "Every":
+								options.Every = (int)property.Argument.Value;
+								break;
+							case "PerFrame":
+								options.PerFrame = (int)property.Argument.Value;
+								break;
+							case "AnyThread":
+								options.AnyThread = (bool)property.Argument.Value;
+								break;
+						}
+					}
+					var point = method.DebugInformation.HasSequencePoints ? method.DebugInformation.SequencePoints.FirstOrDefault(sequence => !sequence.IsHidden) : null;
+					if (options.Every < 1 || options.PerFrame < 1)
+					{
+						diagnostics.Add(TelemetryDiagnostic.Error(point?.Document.Url, point?.StartLine ?? 0, point?.StartColumn ?? 0, "TelemetryMethod needs Every and PerFrame of one or more: " + method.FullName));
+						continue;
+					}
+					var symbols = point == null ? null : readSource(point.Document.Url);
+					if (options.Detail > KeptDetail(defines, symbols))
+					{
+						continue;
+					}
+					var name = method.DeclaringType.FullName.Replace('/', '.') + "." + method.Name;
+					MethodInstrumenter.Wrap(method, attribute.AttributeType.Scope, module.Assembly.Name.Name, name, options);
+					changed = true;
+				}
+			}
+			return changed;
+		}
+
+		static CustomAttribute MethodAttribute(ICustomAttributeProvider provider)
+		{
+			return provider.CustomAttributes.FirstOrDefault(attribute => attribute.AttributeType.FullName == MethodAttributeType);
+		}
+
+		static bool IsStateMachine(MethodDefinition method)
+		{
+			return method.CustomAttributes.Any(attribute =>
+				attribute.AttributeType.FullName == "System.Runtime.CompilerServices.AsyncStateMachineAttribute"
+				|| attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IteratorStateMachineAttribute"
+				|| attribute.AttributeType.FullName == "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute");
+		}
+
+		static bool IsCompilerGenerated(MethodDefinition method)
+		{
+			return method.CustomAttributes.Any(attribute => attribute.AttributeType.FullName == "System.Runtime.CompilerServices.CompilerGeneratedAttribute");
 		}
 
 		static void Set(Instruction instruction, OpCode opCode, object operand)

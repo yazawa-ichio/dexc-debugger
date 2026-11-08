@@ -70,6 +70,27 @@ namespace Dexc.Telemetry
 		/// <summary>The ambient context, on any thread. Default unless the ambient context is on.</summary>
 		internal TelemetryContext Current => m_UsesAmbient ? m_Ambient.Value : default;
 
+		/// <summary>The thread that started the run.</summary>
+		internal int MainThread => m_MainThread;
+
+		/// <summary>
+		/// Writes a span that already ended, such as a call measured on another thread. Main thread. It takes a slot only
+		/// for the time of the encoding.
+		/// </summary>
+		internal void Record(TelemetryTracer tracer, string name, TelemetryContext parent, long startTicks, long endTicks, string key, in TelemetryValue value)
+		{
+			var span = Start(tracer, name, parent, TelemetryDetail.Basic, false);
+			if (!span.Context.IsValid)
+			{
+				return;
+			}
+			var slot = m_Slots[span.Index];
+			slot.StartTicks = startTicks;
+			SetAttribute(span.Index, span.Generation, key, value);
+			Write(slot, endTicks);
+			Release(span.Index, slot);
+		}
+
 		internal TelemetryTracer Tracer(string name)
 		{
 			if (string.IsNullOrEmpty(name))

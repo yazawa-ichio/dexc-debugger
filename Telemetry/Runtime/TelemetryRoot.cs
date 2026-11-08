@@ -16,9 +16,13 @@ namespace Dexc.Telemetry
 
 		internal static TelemetryRoot Current => s_Current ?? (s_Current = new TelemetryRoot());
 
+		/// <summary>The root if there is one, without making it: for the measured methods, which run in every game.</summary>
+		internal static TelemetryRoot Existing => s_Current;
+
 		internal readonly TelemetryMetrics Metrics;
 		internal readonly TelemetryLogs Logs;
 		internal readonly TelemetryTraces Traces;
+		internal readonly TelemetryMethods Methods;
 
 		TelemetryFrameWriter m_MetricsFrames;
 		TelemetryFrameWriter m_LogFrames;
@@ -44,6 +48,7 @@ namespace Dexc.Telemetry
 			Traces.WriteFailed = Fail;
 			Logs = new TelemetryLogs(Metrics, Traces);
 			m_Capture = new TelemetryCapture(Metrics, Traces);
+			Methods = new TelemetryMethods(Metrics, Traces, m_Capture);
 		}
 
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -148,6 +153,7 @@ namespace Dexc.Telemetry
 			{
 				Logs.Drain(m_LogFrames);
 				Traces.Drain();
+				Methods.Drain();
 				if (m_Capture.IsActive)
 				{
 					if (m_Capture.NextFrame(frame))
@@ -205,6 +211,7 @@ namespace Dexc.Telemetry
 				var started = TelemetrySources.Timestamp();
 				Logs.Drain(m_LogFrames);
 				Logs.Flush(m_LogFrames);
+				Methods.Drain();
 				Traces.Flush();
 				ExportMetrics(started);
 			}
