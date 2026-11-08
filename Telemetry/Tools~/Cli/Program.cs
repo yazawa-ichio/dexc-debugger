@@ -17,6 +17,10 @@ namespace Dexc.Telemetry.Cli
                                               take the closed files of an Android Player
   captures <folder>                           list the captures
   cut <folder> --capture <n> --to <folder>    write capture n as files of its own
+  upstream check                              compare upstream.json with the newest OpenTelemetry tags
+  upstream verify [--proto <tag>] [--collector <tag>]
+                                              check OtlpFields.cs against the .proto files of a tag, and the
+                                              frames of the encoder against a Collector of a tag in Docker
 
 --open also reads the files still being written, up to their last whole frame.";
 
@@ -50,6 +54,16 @@ namespace Dexc.Telemetry.Cli
 							: PullCommand.FromFolder(options.Required("--from"), to, options.Flag("--keep"));
 					case "captures":
 						return CaptureCommands.List(options.Path());
+					case "upstream":
+						switch (options.Path())
+						{
+							case "check":
+								return UpstreamCommand.Check();
+							case "verify":
+								return UpstreamCommand.Verify(options.Value("--proto"), options.Value("--collector"));
+							default:
+								throw new ArgumentException("upstream check or upstream verify");
+						}
 					case "cut":
 						return CaptureCommands.Cut(options.Path(), int.Parse(options.Required("--capture")), options.Required("--to"));
 					default:

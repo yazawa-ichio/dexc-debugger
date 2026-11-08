@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Writes fixed frames with the encoder of the package, built here without Unity, for the upstream checks. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>dexc-telemetry-fixtures</AssemblyName>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);DEXC_TELEMETRY_LOG_VERBOSE;DEXC_TELEMETRY_DETAIL_DETAILED</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The files that need UnityEngine stay out; UnityStandIns.cs takes the place of the few types the rest uses. -->
+    <Compile Include="../../Runtime/*.cs" Exclude="../../Runtime/DexcTelemetry.cs;../../Runtime/TelemetryDriver.cs;../../Runtime/TelemetryRoot.cs;../../Runtime/TelemetrySources.cs;../../Runtime/UnityLogAdapter.cs;../../Runtime/AssemblyInfo.cs;../../Runtime/TelemetryCapture.cs;../../Runtime/TelemetryPlayerLoop.cs" />
+    <Compile Include="*.cs" />
+  </ItemGroup>
+</Project>

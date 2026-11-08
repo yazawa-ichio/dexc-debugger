@@ -339,6 +339,12 @@ dotnet run --project Telemetry/Tools~/Cli -c Release -- send <folder> --endpoint
 - `send`はファイルの状態を残さない。同じファイルを二度送れば二度届く
 - `cut`は、キャプチャのtraceのspanと、その間に始まったspan、その間のlogs、区間が重なるmetricsのフレームを、`<signal>-<run>-capture<n>.otlp`に書く
 
+### 本家への追従
+
+- 月1回程度、手元で行う。CIでは行わない。手順は`Telemetry/Tools~/UPSTREAM.md`にある
+- `Telemetry/Tools~/upstream.json`に、opentelemetry-proto、specification、semantic-conventions、opentelemetry-dotnet、Collectorの版を固定する
+- `upstream check`は最新のタグと比べる。`upstream verify`は、`OtlpFields.cs`を`otlp-fields.json`の対応でタグの`.proto`と照合し、`Tools~/Fixtures`がパッケージの書き出しのコードで書いた固定のフレームを、タグのCollectorに送って確かめる。`Fixtures`はUnityの無いところでランタイムのソースをそのままコンパイルし、Unityの型の代わりを少しだけ置く。手元のデータをリポジトリに置かずに済む
+
 ## IL処理
 
 - `Telemetry/CodeGen/`の`ILPostProcessor`（アセンブリ`Unity.Dexc.Telemetry.CodeGen`）が、`Dexc.Telemetry`を参照するアセンブリをコンパイルのたびに処理する。Editor用とPlayerのビルドの両方で動くので、報告はコンパイルエラーになる。依存は`com.unity.nuget.mono-cecil`である
