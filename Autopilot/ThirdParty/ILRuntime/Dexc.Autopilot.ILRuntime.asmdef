@@ -1,0 +1,11 @@
+{
+  "name": "Dexc.Autopilot.ILRuntime",
+  "rootNamespace": "",
+  "references": [],
+  "allowUnsafeCode": true,
+  "autoReferenced": false,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER",
+    "UNITY_EDITOR || DEXC_AUTOPILOT"
+  ]
+}

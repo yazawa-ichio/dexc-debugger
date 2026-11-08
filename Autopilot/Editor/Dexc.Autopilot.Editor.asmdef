@@ -1,0 +1,14 @@
+{
+  "name": "Dexc.Autopilot.Editor",
+  "rootNamespace": "Dexc.Autopilot",
+  "references": [
+    "Dexc.Autopilot"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER"
+  ]
+}

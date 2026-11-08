@@ -1,0 +1,14 @@
+{
+  "name": "Dexc.Autopilot.Backend.ILRuntime",
+  "rootNamespace": "Dexc.Autopilot",
+  "references": [
+    "Dexc.Autopilot",
+    "Dexc.Autopilot.ILRuntime"
+  ],
+  "allowUnsafeCode": false,
+  "autoReferenced": false,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER",
+    "UNITY_EDITOR || DEXC_AUTOPILOT"
+  ]
+}

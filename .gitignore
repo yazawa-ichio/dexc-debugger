@@ -7,6 +7,8 @@ UserSettings/
 *.sln
 *.slnx
 *.csproj
+!Autopilot/Tools~/**/*.csproj
+!Assets/Samples/StealthStageDemo/Bot~/**/*.csproj
 !Telemetry/Tools~/**/*.csproj
 Telemetry/Tools~/**/bin/
 Telemetry/Tools~/**/obj/

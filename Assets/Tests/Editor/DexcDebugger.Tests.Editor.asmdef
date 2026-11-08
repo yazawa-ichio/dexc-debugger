@@ -8,7 +8,8 @@
     "Dexc.Remote.Protocol",
     "Dexc.Remote",
     "Unity.RenderPipelines.Universal.Runtime",
-    "Unity.RenderPipelines.Core.Runtime"
+    "Unity.RenderPipelines.Core.Runtime",
+    "Dexc.Autopilot"
   ],
   "includePlatforms": [
     "Editor"

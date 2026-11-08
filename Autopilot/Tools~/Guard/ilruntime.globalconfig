@@ -1,0 +1,18 @@
+is_global = true
+
+# ILRuntime runs almost everything. A blocking wait is fine on a finished task, so it is only a warning.
+dotnet_diagnostic.DEXC001.severity = none
+dotnet_diagnostic.DEXC002.severity = none
+dotnet_diagnostic.DEXC003.severity = none
+dotnet_diagnostic.DEXC004.severity = none
+dotnet_diagnostic.DEXC005.severity = none
+dotnet_diagnostic.DEXC006.severity = none
+dotnet_diagnostic.DEXC007.severity = none
+dotnet_diagnostic.DEXC008.severity = none
+dotnet_diagnostic.DEXC009.severity = none
+dotnet_diagnostic.DEXC010.severity = none
+dotnet_diagnostic.DEXC011.severity = none
+dotnet_diagnostic.DEXC012.severity = none
+dotnet_diagnostic.DEXC013.severity = warning
+dotnet_diagnostic.DEXC014.severity = none
+dotnet_diagnostic.DEXC015.severity = none

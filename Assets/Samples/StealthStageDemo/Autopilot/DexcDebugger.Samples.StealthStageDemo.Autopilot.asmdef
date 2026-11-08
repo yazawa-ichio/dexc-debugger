@@ -1,0 +1,18 @@
+{
+  "name": "DexcDebugger.Samples.StealthStageDemo.Autopilot",
+  "rootNamespace": "DexcDebugger.Samples.StealthStageDemo.Autopilot",
+  "references": [
+    "DexcDebugger.Samples.StealthStageDemo.Gameplay",
+    "Unity.InputSystem",
+    "Dexc.Autopilot",
+    "Dexc.Autopilot.ILRuntime",
+    "Dexc.Autopilot.Backend.ILRuntime",
+    "Dexc.Autopilot.Backend.Pipeline"
+  ],
+  "allowUnsafeCode": false,
+  "autoReferenced": false,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER",
+    "UNITY_EDITOR || DEXC_AUTOPILOT"
+  ]
+}
