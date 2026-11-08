@@ -1,0 +1,21 @@
+{
+  "name": "Unity.Dexc.Telemetry.CodeGen",
+  "rootNamespace": "Dexc.Telemetry.CodeGen",
+  "references": [],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Mono.Cecil.dll",
+    "Mono.Cecil.Rocks.dll",
+    "Mono.Cecil.Pdb.dll",
+    "Mono.Cecil.Mdb.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": true
+}

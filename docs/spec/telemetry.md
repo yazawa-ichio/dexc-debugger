@@ -152,7 +152,7 @@ cleared.Info("stage {Stage} cleared", stage);
 - `{Name}`の穴に値を順に当てる。名前は値の順番に関係しない。`{Name:F2}`の`:`から後は書式である。`{{`と`}}`は波括弧そのものである
 - Bodyはテンプレートのままとし、値は名前をキーにした属性にする。数値と真偽値は型を保つ
 - `TelemetryOptions.IncludeFormattedMessage`を有効にすると、Bodyは値を埋めた文になる。属性は変わらない。文を作るので確保が発生する
-- 穴と値の数が合わなければ、余った穴と値は無視する
+- 穴と値の数が合わなければ、余った穴と値は無視する。定数のテンプレートは、ビルド時にIL処理が検査してエラーにする（[IL処理](#il処理)）
 - `TelemetryValue.Of`の`ToString`は書き出すときに呼ぶ。例外を投げても出力は止めない
 
 ### 確保しないこと
@@ -269,6 +269,17 @@ DexcTelemetry.StopCapture();
 - `OnApplicationPause`と`OnApplicationQuit`でも書く
 - 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない
 - Resourceには`service.name`、`service.version`、`service.instance.id`（実行ごとに固有）、`telemetry.sdk.name`と、`ResourceAttributes`を載せる
+
+## IL処理
+
+- `Telemetry/CodeGen/`の`ILPostProcessor`（アセンブリ`Unity.Dexc.Telemetry.CodeGen`）が、`Dexc.Telemetry`を参照するアセンブリをコンパイルのたびに処理する。Editor用とPlayerのビルドの両方で動くので、報告はコンパイルエラーになる。依存は`com.unity.nuget.mono-cecil`である
+- 処理の本体はUnityの型から切り離し、テストはCecilで組み立てたILに対して行う。誤ったテンプレートをテストのコードに書くと、検査がビルドを止めるためである
+
+### テンプレートの検査
+
+- ログの呼び出しで、テンプレートの穴の数と値の数が違えばエラーにする。穴の数え方は実行時と同じで、テストで一致を確かめる
+- 検査できるのは、テンプレートが定数（`ldstr`）で、引数の計算に分岐が無い呼び出しだけである。それ以外は検査しない
+- コンパイルのシンボルで消えた呼び出しはILに無いので検査しない。`DEXC_TELEMETRY_LOG_VERBOSE`の無いビルドでは、Verboseの呼び出しは検査されない
 
 ## protobufの書き出し
 

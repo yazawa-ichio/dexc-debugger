@@ -5,5 +5,7 @@
   "description": "Records metrics, logs and traces in a Player and writes them as OTLP protobuf.",
   "unity": "6000.3",
   "license": "MIT",
-  "dependencies": {}
+  "dependencies": {
+    "com.unity.nuget.mono-cecil": "1.11.6"
+  }
 }

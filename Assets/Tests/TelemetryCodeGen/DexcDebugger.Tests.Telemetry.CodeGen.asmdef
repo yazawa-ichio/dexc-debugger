@@ -1,0 +1,26 @@
+{
+  "name": "DexcDebugger.Tests.Telemetry.CodeGen",
+  "rootNamespace": "DexcDebugger.Tests.Telemetry.CodeGen",
+  "references": [
+    "Dexc.Telemetry",
+    "Unity.Dexc.Telemetry.CodeGen"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Mono.Cecil.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

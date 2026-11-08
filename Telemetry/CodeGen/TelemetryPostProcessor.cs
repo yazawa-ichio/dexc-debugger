@@ -1,0 +1,83 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
+using Unity.CompilationPipeline.Common.Diagnostics;
+using Unity.CompilationPipeline.Common.ILPostProcessing;
+
+namespace Dexc.Telemetry.CodeGen
+{
+	/// <summary>
+	/// Runs <see cref="TelemetryWeaver"/> on every assembly that uses <c>Dexc.Telemetry</c>. Unity runs it while compiling,
+	/// for the Editor and for each Player build, so what it reports is a compile error.
+	/// </summary>
+	internal sealed class TelemetryPostProcessor : ILPostProcessor
+	{
+		const string RuntimeAssembly = "Dexc.Telemetry";
+
+		public override ILPostProcessor GetInstance()
+		{
+			return this;
+		}
+
+		public override bool WillProcess(ICompiledAssembly compiledAssembly)
+		{
+			return compiledAssembly.Name != RuntimeAssembly
+				&& compiledAssembly.References.Any(reference => Path.GetFileNameWithoutExtension(reference) == RuntimeAssembly);
+		}
+
+		public override ILPostProcessResult Process(ICompiledAssembly compiledAssembly)
+		{
+			if (!WillProcess(compiledAssembly))
+			{
+				return null;
+			}
+			var diagnostics = new List<TelemetryDiagnostic>();
+			try
+			{
+				using (var resolver = new DefaultAssemblyResolver())
+				{
+					foreach (var directory in compiledAssembly.References.Select(Path.GetDirectoryName).Distinct())
+					{
+						resolver.AddSearchDirectory(directory);
+					}
+					var parameters = new ReaderParameters
+					{
+						AssemblyResolver = resolver,
+						SymbolStream = new MemoryStream(compiledAssembly.InMemoryAssembly.PdbData),
+						SymbolReaderProvider = new PortablePdbReaderProvider(),
+						ReadingMode = ReadingMode.Immediate,
+					};
+					using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(compiledAssembly.InMemoryAssembly.PeData), parameters))
+					{
+						TelemetryWeaver.Check(assembly.MainModule, diagnostics);
+					}
+				}
+			}
+			catch (Exception exception)
+			{
+				diagnostics.Add(TelemetryDiagnostic.Error(null, 0, 0, "Dexc.Telemetry could not process " + compiledAssembly.Name + ": " + exception));
+			}
+			if (diagnostics.Count == 0)
+			{
+				return null;
+			}
+			// Nothing is rewritten yet: the assembly goes on as it came, with what was found.
+			return new ILPostProcessResult(compiledAssembly.InMemoryAssembly, diagnostics.Select(ToMessage).ToList());
+		}
+
+		static DiagnosticMessage ToMessage(TelemetryDiagnostic diagnostic)
+		{
+			return new DiagnosticMessage
+			{
+				DiagnosticType = diagnostic.IsError ? DiagnosticType.Error : DiagnosticType.Warning,
+				File = diagnostic.File,
+				Line = diagnostic.Line,
+				Column = diagnostic.Column,
+				MessageData = diagnostic.Message,
+			};
+		}
+	}
+}

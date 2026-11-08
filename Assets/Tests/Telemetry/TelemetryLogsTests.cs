@@ -182,8 +182,10 @@ namespace DexcDebugger.Tests.Telemetry
 		public void TheFormattedMessageCanBeTheBody()
 		{
 			m_Logs.IncludeFormattedMessage = true;
+			// Not a constant, so that the build does not refuse the hole left without a value.
+			var template = string.Concat("stage {Stage} took {Seconds:F2}, {{raw}} ", "{Missing}");
 
-			m_Logger.Info("stage {Stage} took {Seconds:F2}, {{raw}} {Missing}", 3, 1.5);
+			m_Logger.Info(template, 3, 1.5);
 
 			var record = DrainAll().Single();
 			Assert.That(Body(record), Is.EqualTo("stage 3 took 1.50, {raw} {Missing}"));
@@ -203,7 +205,8 @@ namespace DexcDebugger.Tests.Telemetry
 		[Test]
 		public void AValueWithoutAHoleIsLeftOut()
 		{
-			m_Logger.Info("{First}", 1, 2);
+			// Not a constant, so that the build does not refuse the value left without a hole.
+			m_Logger.Info(string.Concat("{First}", string.Empty), 1, 2);
 
 			var values = Values(DrainAll().Single());
 
