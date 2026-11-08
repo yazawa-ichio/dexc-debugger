@@ -25,7 +25,7 @@ namespace Dexc.Telemetry
 		/// <summary>Where this span sits. Invalid when it is not recorded.</summary>
 		public TelemetryContext Context { get; }
 
-		/// <summary>Sets an attribute. A span keeps four. Those beyond are counted as dropped.</summary>
+		/// <summary>Sets an attribute. A key set again takes the new value. A span keeps eight. Those beyond are counted as dropped.</summary>
 		public void Set(string key, TelemetryValue value)
 		{
 			m_Traces?.SetAttribute(m_Index, m_Generation, key, value);

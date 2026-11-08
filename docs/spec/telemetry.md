@@ -232,7 +232,7 @@ using (var span = tracer.Start("stage.load"))
 - main threadでの終了は、その場でエンコードする。別スレッドでの終了は、終了の時刻を記録してスロットの番号をロック付きのキューへ入れるだけにし、次のフレームにmain threadでエンコードする。キューは開いているspan1つにつき1件までなので、スロット数で足りて溢れない
 - main threadの取り出しは、件数をロックなしで先に読み、0件ならロックを取らない。.NET 10のReleaseで、キューへ入れるのは約33ns、スレッドの判定は約0.5nsだった（IL2CPPでは最後の確認で測る）
 - 値を返すので`ConditionalAttribute`では消せない。実行時は`TelemetryOptions.Detail`で止まる。呼び出しごと消すのはIL処理の役割である
-- 属性は4個までで、超えた分は`dropped_attributes_count`で数える
+- 属性は8個までで、超えた分は`dropped_attributes_count`で数える。同じキーをもう一度渡すと値を上書きする。スロットごとに8個分を持ち、256個で約64KBである
 - 通常時に毎フレームのspanは作らない
 - `Stop`の時点で開いているspanは書かない
 - ファイルは`traces-<run>.otlp`である。64KBのバッファーへためて、埋まると書き、書き出しの間隔でも書く

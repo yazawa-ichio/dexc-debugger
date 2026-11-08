@@ -14,7 +14,7 @@ namespace Dexc.Telemetry
 	internal sealed class TelemetryTraces
 	{
 		const int SlotCapacity = 256;
-		const int AttributeLimit = 4;
+		const int AttributeLimit = 8;
 		const ulong SpanKindInternal = 1;
 		const ulong StatusCodeError = 2;
 		const long UnixEpochTicks = 621355968000000000;
@@ -179,6 +179,14 @@ namespace Dexc.Telemetry
 			if (slot == null)
 			{
 				return;
+			}
+			for (var i = 0; i < slot.AttributeCount; i++)
+			{
+				if (string.Equals(slot.Keys[i], key, StringComparison.Ordinal))
+				{
+					slot.Values[i] = value;
+					return;
+				}
 			}
 			if (slot.AttributeCount == AttributeLimit)
 			{

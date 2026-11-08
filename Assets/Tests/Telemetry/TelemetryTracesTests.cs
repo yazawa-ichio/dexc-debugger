@@ -177,15 +177,37 @@ namespace DexcDebugger.Tests.Telemetry
 			span.Set("double", 1.5);
 			span.Set("text", "boss");
 			span.Set("bool", true);
+			span.Set("e", 5);
+			span.Set("f", 6);
+			span.Set("g", 7);
+			span.Set("h", 8);
 			span.Set("one too many", 1);
 			span.Set("two too many", 1);
 			span.Dispose();
 
 			var record = Spans().Single();
 			var attributes = record.Where(field => field.Number == 9).Select(field => ProtobufTestReader.Read(field.Bytes)).ToList();
-			Assert.That(attributes.Select(attribute => One(attribute, 1).Text), Is.EqualTo(new[] { "int", "double", "text", "bool" }));
+			Assert.That(attributes.Select(attribute => One(attribute, 1).Text), Is.EqualTo(new[] { "int", "double", "text", "bool", "e", "f", "g", "h" }));
 			Assert.That(Nested(attributes[0], 2).Single().Value, Is.EqualTo(3UL));
 			Assert.That(One(record, 10).Value, Is.EqualTo(2UL), "dropped_attributes_count");
+		}
+
+		[Test]
+		public void AKeySetAgainTakesTheNewValue()
+		{
+			Start();
+
+			var span = m_Tracer.Start("x");
+			span.Set("stage", 1);
+			span.Set("mode", "hard");
+			span.Set("stage", 2);
+			span.Dispose();
+
+			var record = Spans().Single();
+			var attributes = record.Where(field => field.Number == 9).Select(field => ProtobufTestReader.Read(field.Bytes)).ToList();
+			Assert.That(attributes.Select(attribute => One(attribute, 1).Text), Is.EqualTo(new[] { "stage", "mode" }));
+			Assert.That(Nested(attributes[0], 2).Single().Value, Is.EqualTo(2UL));
+			Assert.That(record.Any(field => field.Number == 10), Is.False);
 		}
 
 		[Test]
