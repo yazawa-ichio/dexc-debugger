@@ -314,7 +314,7 @@ dotnet run --project <repo>/Autopilot/Tools~/Dashboard -c Release
 | --- | --- |
 | Builds | ビルドごとの状態、`log`、`failure`。答えを待つ質問、エージェントへの指示、経緯 |
 | Machines | マシンの状態と遷移の図。今の状態を塗り、割り込まれたマシンが戻る状態を枠で示します |
-| Performance | `ws telemetry start --upload`で送らせた指標の線グラフ。ビルドを色で分けます |
+| Performance | 分布の表（ビルドと注釈ごと。最初のビルドよりp95が1割以上悪い行に印）、ロードの表、ヒッチの一覧、指標の線グラフ。`ws telemetry start --upload`で送らせたものです |
 
 #### Botの質問
 
@@ -361,6 +361,7 @@ Dexc.Autopilot.Compiler ws agent say "stage 2 を試します"
 | --- | --- |
 | `GET /api/builds`、`/api/status`、`/api/graph`、`/api/history` | ビルドの一覧、`status`、マシンの図、直近の状態の移り変わり。`?build=`で1つに絞ります |
 | `GET /api/perf/builds`、`/api/perf/metrics`、`/api/perf/points`、`/api/perf/spans`、`/api/perf/logs` | 受けたテレメトリー。`points`は`?build=&name=&since=` |
+| `GET /api/perf/summary`、`/api/perf/loads`、`/api/perf/hitches` | 分布（`?metric=&since=`、ビルドと系列ごとのp50、p95、p99、遅いフレームと止まったフレームの割合）、ロードと段階、ヒッチ |
 | `GET /api/decisions`、`/api/journal` | 答えを待つ質問、経緯 |
 | `GET /api/events` | SSE。`build`、`graph`、`perf`、`journal` |
 | `POST /api/decisions/answer`、`/api/instructions` | 答える、指示を送る。`Dexc.post`がトークンを付けます |

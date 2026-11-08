@@ -16,6 +16,24 @@
 <main>
 	<h1>Performance</h1>
 	<p class="muted">What the Players send over OTLP: start them with <code>ws telemetry start --upload</code>. A histogram is drawn as its mean per export, with its max dotted.</p>
+	<section class="card" style="margin-bottom:12px">
+		<div class="row">
+			<h2>Distribution</h2>
+			<select id="summary-metric"></select>
+			<span class="muted">Percentiles from the buckets. Slow: over 16.7 ms. Frozen: over 700 ms. A p95 more than 10% above the first build is marked.</span>
+		</div>
+		<div class="scroll"><table id="summary" class="table"></table></div>
+	</section>
+	<div class="grid" style="margin-bottom:12px">
+		<section class="card">
+			<h2>Loads</h2>
+			<div class="scroll"><table id="loads" class="table"></table></div>
+		</section>
+		<section class="card">
+			<h2>Hitches</h2>
+			<div class="scroll"><table id="hitches" class="table"></table></div>
+		</section>
+	</div>
 	<div id="metrics"></div>
 	<div id="charts" class="grid"></div>
 </main>
@@ -31,7 +49,76 @@
 	let builds = [];
 	let scheduled = false;
 
-	function key(metric, build) { return metric + "\u0000" + build; }
+	const histograms = new Set();
+
+	function table(id, head, rows) {
+		document.getElementById(id).replaceChildren(
+			element("thead", {}, element("tr", {}, head.map(name => element("th", {}, name)))),
+			element("tbody", {}, rows));
+	}
+
+	function number(value, digits = 1) {
+		return typeof value === "number" && isFinite(value) ? value.toFixed(digits) : "-";
+	}
+
+	function percent(value) {
+		return typeof value === "number" && isFinite(value) ? (value * 100).toFixed(1) + "%" : "-";
+	}
+
+	function labels(attributes) {
+		return Object.entries(attributes || {}).map(([key, value]) => key + "=" + value).join(", ") || "(all)";
+	}
+
+	async function summary() {
+		const picker = document.getElementById("summary-metric");
+		for (const name of [...histograms].sort()) {
+			if (![...picker.options].some(option => option.value === name)) picker.append(element("option", { value: name }, name));
+		}
+		if (!picker.value) picker.value = histograms.has("unity.frame.time") ? "unity.frame.time" : picker.options[0]?.value || "";
+		if (!picker.value) return;
+		const rows = await Dexc.get("/api/perf/summary?metric=" + encodeURIComponent(picker.value));
+		const first = {};
+		for (const row of rows) if (!(row.series in first)) first[row.series] = row;
+		table("summary", ["series", "build", "count", "mean", "p50", "p95", "p99", "max", "slow", "frozen"],
+			rows.map(row => element("tr", { class: row.p95 > first[row.series].p95 * 1.1 ? "worse" : null },
+				element("td", {}, labels(row.attributes)), element("td", {}, row.build), element("td", {}, String(row.count)),
+				element("td", {}, number(row.mean)), element("td", {}, number(row.p50)), element("td", {}, number(row.p95)),
+				element("td", {}, number(row.p99)), element("td", {}, number(row.max)), element("td", {}, percent(row.slow)),
+				element("td", {}, percent(row.frozen)))));
+	}
+
+	async function loads() {
+		const groups = {};
+		for (const build of builds) {
+			for (const load of await Dexc.get("/api/perf/loads?build=" + encodeURIComponent(build))) {
+				const key = load.name + " (" + load.kind + ")|" + build;
+				(groups[key] = groups[key] || { name: load.name + " (" + load.kind + ")", build, durations: [], last: null }).durations.push(load.duration);
+				groups[key].last = load;
+			}
+		}
+		const rows = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name) || a.build.localeCompare(b.build)).map(group => {
+			const sorted = group.durations.slice().sort((a, b) => a - b);
+			const phases = (group.last.phases || []).map(phase => phase.name + " " + number(phase.duration, 0)).join(", ");
+			return element("tr", {}, element("td", {}, group.name), element("td", {}, group.build), element("td", {}, String(sorted.length)),
+				element("td", {}, number(sorted[Math.floor(sorted.length / 2)], 0)), element("td", {}, number(sorted[sorted.length - 1], 0)),
+				element("td", { class: "muted" }, phases));
+		});
+		table("loads", ["load", "build", "count", "median ms", "max ms", "last, by step"], rows);
+	}
+
+	async function hitches() {
+		const all = [];
+		for (const build of builds) for (const hitch of await Dexc.get("/api/perf/hitches?build=" + encodeURIComponent(build))) all.push({ build, ...hitch });
+		all.sort((a, b) => b.time - a.time);
+		const own = key => key.startsWith("unity.") || key.startsWith("dexc.");
+		table("hitches", ["time", "build", "ms", "doing", "where"], all.slice(0, 30).map(hitch => {
+			const attributes = hitch.attributes || {};
+			const doing = Object.entries(attributes).filter(([key]) => !own(key)).map(([key, value]) => key + "=" + value).join(", ") + (attributes["dexc.loading"] ? " (loading)" : "");
+			const where = attributes["dexc.map"] !== undefined ? attributes["dexc.map"] + " " + [attributes["dexc.position.x"], attributes["dexc.position.y"], attributes["dexc.position.z"]].map(value => number(value)).join(", ") : "-";
+			return element("tr", {}, element("td", {}, new Date(hitch.time).toLocaleTimeString()), element("td", {}, hitch.build),
+				element("td", {}, number(attributes["unity.frame.time"], 0)), element("td", {}, doing || "-"), element("td", {}, where));
+		}));
+	}
 
 	async function load() {
 		builds = await Dexc.get("/api/perf/builds");
@@ -40,8 +127,10 @@
 			for (const metric of await Dexc.get("/api/perf/metrics?build=" + encodeURIComponent(build))) {
 				names.add(metric.name);
 				units[metric.name] = metric.unit;
+				if (metric.kind === "histogram") histograms.add(metric.metric);
 			}
 		}
+		await Promise.all([summary(), loads(), hitches()]);
 		if (chosen.size === 0) for (const name of defaults) if (names.has(name)) chosen.add(name);
 		const list = document.getElementById("metrics");
 		list.replaceChildren(...[...names].sort().map(name => element("label", {},
@@ -140,6 +229,7 @@
 		setTimeout(() => { scheduled = false; load(); }, 2000);
 	});
 	window.addEventListener("resize", draw);
+	document.getElementById("summary-metric").addEventListener("change", summary);
 	load();
 </script>
 </body>

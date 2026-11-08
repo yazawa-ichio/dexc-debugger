@@ -674,12 +674,12 @@ namespace Dexc.Autopilot.Compiler
 					var upload = string.Empty;
 					if (options.Has("upload"))
 					{
-						// To the dashboard, every few seconds, for it to draw as the Players go.
+						// To the dashboard, every few seconds, for it to draw as the Players go. The logs too: they carry the hitches.
 						if (!File.Exists(workspace.DashboardEndpoint))
 							throw new InvalidOperationException("--upload sends to the dashboard, which is not running.");
 						var url = JsonNode.Parse(File.ReadAllText(workspace.DashboardEndpoint))["url"].GetValue<string>().Replace("\"", string.Empty);
 						start = "if (!" + Api + ".IsRunning) " + Api + ".Start(new Dexc.Telemetry.TelemetryOptions { ExportIntervalSeconds = " + UploadSeconds + " }); ";
-						upload = "if (!" + Api + ".IsUploading) " + Api + ".StartUpload(new Dexc.Telemetry.TelemetryUploadOptions { Endpoint = \"" + url + "\", IntervalSeconds = " + UploadSeconds + " }); ";
+						upload = "if (!" + Api + ".IsUploading) " + Api + ".StartUpload(new Dexc.Telemetry.TelemetryUploadOptions { Endpoint = \"" + url + "\", IntervalSeconds = " + UploadSeconds + ", Logs = true }); ";
 					}
 
 					return ForEach(Running(players), player => Eval(workspace, player, start + watch + upload + "return " + Api + ".IsRunning;", options, compilerPort));

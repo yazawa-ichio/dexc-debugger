@@ -238,6 +238,9 @@ Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルド
 - `POST /v1/metrics|traces|logs`でOTLP/HTTPのprotobufを受ける。gzipにも対応する。`.proto`は`Telemetry/Tools~/proto`のものを使う
 - Resourceの`dexc.build`でビルドに分け、無ければ`service.name`を使う。指標は名前と属性ごとに2000点、spanとlogsは500件までメモリに持つ
 - ヒストグラムは、1回の書き出しの平均（`sum / count`）と`max`で描く
+- 系列は名前と属性の組で分ける。ヒストグラムはバケットも持ち、時刻の範囲の点のバケットを足し合わせて、p50、p95、p99と、遅いフレーム（16.7ms超）と止まったフレーム（700ms超）の割合を出す（`/api/perf/summary`）。分位数はバケットの中を線形に補い、最初と最後のバケットは最小値と最大値で閉じる（Prometheusと同じ）。割合は、その値から始まるバケットで数えるので、境界にその値が要る。Dexc Telemetryのフレーム時間の境界は16.7と700を持つ
+- ロード（span `dexc.load`）とヒッチ（イベント`dexc.hitch`）は、直近のspanとlogsとは別に、ビルドごとに500件まで持つ。忙しいゲームのspanに押し出されないようにするためである。ロードの段階は、受けたspanのうち親がそのロードのものを、問い合わせのときに集める
+- `ws telemetry start --upload`はlogsも送らせる。ヒッチのイベントがlogsで届くためである
 - `--forward`があれば、受けた本文をそのまま送る。失敗しても受け取りは成り立たせ、標準エラーに書く
 
 ## ガードレール

@@ -102,6 +102,9 @@ namespace Dexc.Autopilot.Dashboard
 			app.MapGet("/api/perf/builds", () => Json(new JsonArray(Hub.Perf.Builds().Select(name => (JsonNode)name).ToArray())));
 			app.MapGet("/api/perf/metrics", (string build) => Json(Hub.Perf.Metrics(build ?? string.Empty)));
 			app.MapGet("/api/perf/points", (string build, string name, double? since) => Json(Hub.Perf.Points(build ?? string.Empty, name ?? string.Empty, since ?? 0)));
+			app.MapGet("/api/perf/summary", (string metric, double? since) => Json(Hub.Perf.Summary(metric ?? "unity.frame.time", since ?? 0)));
+			app.MapGet("/api/perf/loads", (string build) => Json(Hub.Perf.Loads(build ?? string.Empty)));
+			app.MapGet("/api/perf/hitches", (string build) => Json(Hub.Perf.Hitches(build ?? string.Empty)));
 			app.MapGet("/api/perf/spans", (string build) => Json(Hub.Perf.Spans(build ?? string.Empty)));
 			app.MapGet("/api/perf/logs", (string build) => Json(Hub.Perf.Logs(build ?? string.Empty)));
 			app.MapGet("/api/decisions", () => Json(Hub.Relay.Decisions()));
