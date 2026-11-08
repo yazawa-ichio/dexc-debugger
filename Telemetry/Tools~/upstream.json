@@ -3,5 +3,5 @@
   "opentelemetry-specification": "v1.62.0",
   "semantic-conventions": "v1.45.0",
   "opentelemetry-dotnet": "core-1.20.1",
-  "opentelemetry-collector-contrib": "0.164.0"
+  "opentelemetry-collector-contrib": "0.165.0"
 }
