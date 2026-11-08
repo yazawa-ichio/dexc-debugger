@@ -35,6 +35,7 @@ namespace Dexc.Telemetry.CodeGen
 				return null;
 			}
 			var diagnostics = new List<TelemetryDiagnostic>();
+			InMemoryAssembly written = null;
 			try
 			{
 				using (var resolver = new DefaultAssemblyResolver())
@@ -53,6 +54,13 @@ namespace Dexc.Telemetry.CodeGen
 					using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(compiledAssembly.InMemoryAssembly.PeData), parameters))
 					{
 						TelemetryWeaver.Check(assembly.MainModule, diagnostics);
+						if (TelemetryWeaver.StripSpans(assembly.MainModule, new HashSet<string>(compiledAssembly.Defines), ReadSource))
+						{
+							var pe = new MemoryStream();
+							var pdb = new MemoryStream();
+							assembly.Write(pe, new WriterParameters { SymbolWriterProvider = new PortablePdbWriterProvider(), SymbolStream = pdb, WriteSymbols = true });
+							written = new InMemoryAssembly(pe.ToArray(), pdb.ToArray());
+						}
 					}
 				}
 			}
@@ -60,12 +68,23 @@ namespace Dexc.Telemetry.CodeGen
 			{
 				diagnostics.Add(TelemetryDiagnostic.Error(null, 0, 0, "Dexc.Telemetry could not process " + compiledAssembly.Name + ": " + exception));
 			}
-			if (diagnostics.Count == 0)
+			if (written == null && diagnostics.Count == 0)
 			{
 				return null;
 			}
-			// Nothing is rewritten yet: the assembly goes on as it came, with what was found.
-			return new ILPostProcessResult(compiledAssembly.InMemoryAssembly, diagnostics.Select(ToMessage).ToList());
+			return new ILPostProcessResult(written ?? compiledAssembly.InMemoryAssembly, diagnostics.Select(ToMessage).ToList());
+		}
+
+		static SourceSymbols ReadSource(string path)
+		{
+			try
+			{
+				return File.Exists(path) ? SourceSymbols.Read(File.ReadAllText(path)) : null;
+			}
+			catch (IOException)
+			{
+				return null;
+			}
 		}
 
 		static DiagnosticMessage ToMessage(TelemetryDiagnostic diagnostic)

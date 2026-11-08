@@ -231,7 +231,7 @@ using (var span = tracer.Start("stage.load"))
 - spanの開始はmain threadだけである。属性、エラー、終了は、`ConfigureAwait(false)`などで別スレッドへ移った継続からも呼べる。1つのspanを同時に複数のスレッドから触るのは対象外である
 - main threadでの終了は、その場でエンコードする。別スレッドでの終了は、終了の時刻を記録してスロットの番号をロック付きのキューへ入れるだけにし、次のフレームにmain threadでエンコードする。キューは開いているspan1つにつき1件までなので、スロット数で足りて溢れない
 - main threadの取り出しは、件数をロックなしで先に読み、0件ならロックを取らない。.NET 10のReleaseで、キューへ入れるのは約33ns、スレッドの判定は約0.5nsだった（IL2CPPでは最後の確認で測る）
-- 値を返すので`ConditionalAttribute`では消せない。実行時は`TelemetryOptions.Detail`で止まる。呼び出しごと消すのはIL処理の役割である
+- 値を返すので`ConditionalAttribute`では消せない。代わりにIL処理が、シンボルより細かい`Start`を引数の計算ごと空のspanに置き換える（[spanの除去](#spanの除去)）。消えなかった呼び出しは、実行時に`TelemetryOptions.Detail`で止まる
 - 属性は8個までで、超えた分は`dropped_attributes_count`で数える。同じキーをもう一度渡すと値を上書きする。スロットごとに8個分を持ち、256個で約64KBである
 - 通常時に毎フレームのspanは作らない。作るのはキャプチャの間だけである
 - `Stop`の時点で開いているspanは書かない
@@ -280,6 +280,13 @@ DexcTelemetry.StopCapture();
 - ログの呼び出しで、テンプレートの穴の数と値の数が違えばエラーにする。穴の数え方は実行時と同じで、テストで一致を確かめる
 - 検査できるのは、テンプレートが定数（`ldstr`）で、引数の計算に分岐が無い呼び出しだけである。それ以外は検査しない
 - コンパイルのシンボルで消えた呼び出しはILに無いので検査しない。`DEXC_TELEMETRY_LOG_VERBOSE`の無いビルドでは、Verboseの呼び出しは検査されない
+
+### spanの除去
+
+- `TelemetryTracer.Start`の詳細度が、シンボルが残す詳細度より細かければ、呼び出しを引数の計算ごと消し、空のspanにする。`ConditionalAttribute`と同じ扱いで、引数は評価されない
+- シンボルは、プロジェクトのもの（`compiledAssembly.Defines`）と、呼び出しのあるソースファイルの先頭の`#define`と`#undef`で決める。後者はアセンブリに残らないが、`ConditionalAttribute`はそれに従うので、ファイルを読んで同じ判定にする。先頭に`#if`があるファイルは判定せず、すべて残す。読めないファイルはプロジェクトのシンボルだけで決める
+- `Set`、`SetError`、`Dispose`は残す。空のspanには何もしない
+- 詳細度が定数でない呼び出しと、引数の計算に分岐がある呼び出しは消さない。実行時の詳細度で止まる
 
 ## protobufの書き出し
 

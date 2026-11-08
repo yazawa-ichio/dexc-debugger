@@ -1,4 +1,6 @@
 #define DEXC_TELEMETRY_LOG_VERBOSE
+// Without it the IL processing would turn the span starts of this file into empty spans.
+#define DEXC_TELEMETRY_DETAIL_DETAILED
 
 using System;
 using System.Collections;

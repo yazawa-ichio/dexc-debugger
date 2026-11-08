@@ -47,6 +47,74 @@ namespace Dexc.Telemetry.CodeGen
 			return null;
 		}
 
+		/// <summary>
+		/// The first instruction of the code that pushes all the arguments of the call, <c>this</c> included. Control may
+		/// come in at that first instruction, but nowhere after it. Null when it cannot tell.
+		/// </summary>
+		internal static Instruction ArgumentsStart(MethodBody body, Instruction call)
+		{
+			var needed = ArgumentCount((MethodReference)call.Operand, call.OpCode);
+			if (needed == 0)
+			{
+				return null;
+			}
+			var targets = Targets(body);
+			var boundaries = Boundaries(body);
+			for (var instruction = call.Previous; instruction != null; instruction = instruction.Previous)
+			{
+				if (boundaries.Contains(instruction) || IsJump(instruction) || !Effect(instruction, out var pop, out var push))
+				{
+					return null;
+				}
+				needed -= push;
+				if (needed < 0)
+				{
+					return null;
+				}
+				needed += pop;
+				if (needed == 0)
+				{
+					return instruction;
+				}
+				if (targets.Contains(instruction))
+				{
+					return null;
+				}
+			}
+			return null;
+		}
+
+		/// <summary>The value of an instruction that loads an <c>int</c> constant.</summary>
+		internal static bool TryConstant(Instruction instruction, out int value)
+		{
+			switch (instruction.OpCode.Code)
+			{
+				case Code.Ldc_I4_M1:
+					value = -1;
+					return true;
+				case Code.Ldc_I4_0:
+				case Code.Ldc_I4_1:
+				case Code.Ldc_I4_2:
+				case Code.Ldc_I4_3:
+				case Code.Ldc_I4_4:
+				case Code.Ldc_I4_5:
+				case Code.Ldc_I4_6:
+				case Code.Ldc_I4_7:
+				case Code.Ldc_I4_8:
+					value = instruction.OpCode.Code - Code.Ldc_I4_0;
+					return true;
+				case Code.Ldc_I4_S:
+					value = (sbyte)instruction.Operand;
+					return true;
+				case Code.Ldc_I4:
+					value = (int)instruction.Operand;
+					return true;
+				default:
+					value = 0;
+					return false;
+			}
+		}
+
 		static int ArgumentCount(MethodReference method, OpCode opCode)
 		{
 			var count = method.Parameters.Count;
@@ -60,39 +128,62 @@ namespace Dexc.Telemetry.CodeGen
 		/// <summary>Where control can come in or go out other than straight down.</summary>
 		static HashSet<Instruction> Blocked(MethodBody body)
 		{
-			var blocked = new HashSet<Instruction>();
+			var blocked = Targets(body);
+			blocked.UnionWith(Boundaries(body));
 			foreach (var instruction in body.Instructions)
 			{
-				var flow = instruction.OpCode.FlowControl;
-				if (flow == FlowControl.Branch || flow == FlowControl.Cond_Branch || flow == FlowControl.Return || flow == FlowControl.Throw)
+				if (IsJump(instruction))
 				{
 					blocked.Add(instruction);
 				}
-				if (instruction.Operand is Instruction target)
-				{
-					blocked.Add(target);
-				}
-				if (instruction.Operand is Instruction[] targets)
-				{
-					blocked.UnionWith(targets);
-				}
-			}
-			foreach (var handler in body.ExceptionHandlers)
-			{
-				Add(blocked, handler.TryStart);
-				Add(blocked, handler.TryEnd);
-				Add(blocked, handler.HandlerStart);
-				Add(blocked, handler.HandlerEnd);
-				Add(blocked, handler.FilterStart);
 			}
 			return blocked;
 		}
 
-		static void Add(HashSet<Instruction> blocked, Instruction instruction)
+		static bool IsJump(Instruction instruction)
+		{
+			var flow = instruction.OpCode.FlowControl;
+			return flow == FlowControl.Branch || flow == FlowControl.Cond_Branch || flow == FlowControl.Return || flow == FlowControl.Throw;
+		}
+
+		/// <summary>The instructions a branch can go to.</summary>
+		static HashSet<Instruction> Targets(MethodBody body)
+		{
+			var targets = new HashSet<Instruction>();
+			foreach (var instruction in body.Instructions)
+			{
+				if (instruction.Operand is Instruction target)
+				{
+					targets.Add(target);
+				}
+				if (instruction.Operand is Instruction[] many)
+				{
+					targets.UnionWith(many);
+				}
+			}
+			return targets;
+		}
+
+		/// <summary>The edges of the exception blocks.</summary>
+		static HashSet<Instruction> Boundaries(MethodBody body)
+		{
+			var boundaries = new HashSet<Instruction>();
+			foreach (var handler in body.ExceptionHandlers)
+			{
+				Add(boundaries, handler.TryStart);
+				Add(boundaries, handler.TryEnd);
+				Add(boundaries, handler.HandlerStart);
+				Add(boundaries, handler.HandlerEnd);
+				Add(boundaries, handler.FilterStart);
+			}
+			return boundaries;
+		}
+
+		static void Add(HashSet<Instruction> set, Instruction instruction)
 		{
 			if (instruction != null)
 			{
-				blocked.Add(instruction);
+				set.Add(instruction);
 			}
 		}
 
