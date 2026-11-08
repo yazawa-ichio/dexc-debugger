@@ -191,7 +191,7 @@ namespace Dexc.Telemetry
 			slot.Context = effective.IsValid
 				? new TelemetryContext(effective.TraceHigh, effective.TraceLow, NextId())
 				: new TelemetryContext(NextId(), NextId(), NextId());
-			slot.StartTicks = DateTime.UtcNow.Ticks;
+			slot.StartTicks = m_Metrics.Clock.UtcTicks;
 			if (slot.IsAmbient)
 			{
 				m_Ambient.Value = slot.Context;
@@ -241,7 +241,7 @@ namespace Dexc.Telemetry
 			{
 				return;
 			}
-			var ticks = DateTime.UtcNow.Ticks;
+			var ticks = m_Metrics.Clock.UtcTicks;
 			if (slot.IsAmbient)
 			{
 				m_Ambient.Value = slot.Parent;

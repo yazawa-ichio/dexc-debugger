@@ -246,18 +246,20 @@ namespace Dexc.Telemetry
 			{
 				span.Set("dexc.method.every", every);
 			}
-			// An async call ends elsewhere, where the allocation of this thread says nothing about it.
-			var allocation = isAsync ? NoAllocation : BeginAllocation();
-			if (!isAsync)
+			if (isAsync)
 			{
-				m_Stack = m_Stack ?? new TelemetryContext[StackCapacity];
-				if (m_Depth < StackCapacity)
-				{
-					m_Stack[m_Depth] = span.Context;
-				}
-				m_Depth++;
+				// An async call ends elsewhere, where the allocation of this thread says nothing about it.
+				return new TelemetryMethodProbe(this, span.Index, span.Generation, true, NoAllocation);
 			}
-			return new TelemetryMethodProbe(this, span.Index, span.Generation, isAsync, allocation);
+			m_Stack = m_Stack ?? new TelemetryContext[StackCapacity];
+			if (m_Depth < StackCapacity)
+			{
+				m_Stack[m_Depth] = span.Context;
+			}
+			// Last, so that what this package does for the call is not counted as the allocation of the call.
+			var allocation = BeginAllocation(m_Depth);
+			m_Depth++;
+			return new TelemetryMethodProbe(this, span.Index, span.Generation, false, allocation);
 		}
 
 		/// <summary>The end of a call. That of an async method may come on another thread, which the span takes care of.</summary>
@@ -283,7 +285,7 @@ namespace Dexc.Telemetry
 		/// The allocated bytes of this thread when the runtime counts them. Otherwise the Profiler counts the allocations,
 		/// only around the outermost call, since one recorder cannot be nested.
 		/// </summary>
-		long BeginAllocation()
+		long BeginAllocation(int depth)
 		{
 			if (m_CountsBytes == null)
 			{
@@ -295,7 +297,7 @@ namespace Dexc.Telemetry
 			{
 				return GC.GetAllocatedBytesForCurrentThread();
 			}
-			if (m_Depth > 0)
+			if (depth > 0)
 			{
 				return NoAllocation;
 			}
@@ -356,7 +358,7 @@ namespace Dexc.Telemetry
 					return default;
 				}
 			}
-			return new TelemetryMethodProbe(this, scope, name, DateTime.UtcNow.Ticks);
+			return new TelemetryMethodProbe(this, scope, name, m_Metrics.Clock.UtcTicks);
 		}
 
 		internal void ExitOtherThread(string scope, string name, long startTicks)
@@ -366,7 +368,7 @@ namespace Dexc.Telemetry
 				Scope = scope,
 				Name = name,
 				StartTicks = startTicks,
-				EndTicks = DateTime.UtcNow.Ticks,
+				EndTicks = m_Metrics.Clock.UtcTicks,
 				Thread = Environment.CurrentManagedThreadId,
 			};
 			lock (m_Lock)

@@ -57,6 +57,7 @@ namespace Dexc.Telemetry
 
 		readonly object m_Lock = new object();
 		readonly TelemetryBatch m_Batch;
+		readonly TelemetryClock m_Clock;
 		readonly TelemetryTraces m_Traces;
 		readonly TelemetryCounter m_DroppedCounter;
 		readonly StringBuilder m_Text = new StringBuilder();
@@ -71,6 +72,7 @@ namespace Dexc.Telemetry
 		internal TelemetryLogs(TelemetryMetrics metrics, TelemetryTraces traces = null)
 		{
 			m_Batch = new TelemetryBatch(metrics.Envelope);
+			m_Clock = metrics.Clock;
 			m_Traces = traces;
 			m_DroppedCounter = metrics.Counter("dexc.telemetry.logs.dropped", "{record}");
 		}
@@ -138,7 +140,7 @@ namespace Dexc.Telemetry
 		/// <summary>Queues a record. When the queue is full the record is dropped and counted.</summary>
 		internal void Add(in Entry entry)
 		{
-			var ticks = DateTime.UtcNow.Ticks;
+			var ticks = m_Clock.UtcTicks;
 			var context = entry.Logger.Context;
 			if (!context.IsValid && m_Traces != null)
 			{

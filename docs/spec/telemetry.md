@@ -269,6 +269,7 @@ DexcTelemetry.StopCapture();
 - `OnApplicationPause`と`OnApplicationQuit`でも書く
 - 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない
 - Resourceには`service.name`、`service.version`、`service.instance.id`（実行ごとに固有）、`telemetry.sdk.name`と、`ResourceAttributes`を載せる
+- 記録の時刻は、rootを作ったときの`DateTime.UtcNow`に、`Stopwatch`の経過を足したものである。WindowsのIL2CPPのPlayerでは`DateTime.UtcNow`が約1ms刻みでしか進まず、メソッドのspanの長さが0になったためである（2026-11-08のPlayerの確認）
 
 ## IL処理
 

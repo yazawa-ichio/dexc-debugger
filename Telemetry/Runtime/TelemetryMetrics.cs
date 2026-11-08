@@ -22,6 +22,9 @@ namespace Dexc.Telemetry
 
 		internal TelemetryEnvelope Envelope { get; } = new TelemetryEnvelope();
 
+		/// <summary>The clock of every record of this root.</summary>
+		internal TelemetryClock Clock { get; } = new TelemetryClock();
+
 		/// <summary>The finest level recorded. Set below what the symbols keep, it silences calls that are compiled in.</summary>
 		internal TelemetryDetail Detail { get; set; } = TelemetryDetail.Detailed;
 
@@ -134,9 +137,9 @@ namespace Dexc.Telemetry
 			}
 		}
 
-		static ulong Now()
+		ulong Now()
 		{
-			return (ulong)(DateTime.UtcNow.Ticks - UnixEpochTicks) * NanosecondsPerTick;
+			return (ulong)(Clock.UtcTicks - UnixEpochTicks) * NanosecondsPerTick;
 		}
 	}
 }
