@@ -37,6 +37,7 @@ namespace Dexc.Telemetry
 			internal string ErrorMessage;
 			internal bool IsEnding;
 			internal long EndTicks;
+			internal bool IsAmbient;
 		}
 
 		readonly TelemetryMetrics m_Metrics;
@@ -139,7 +140,11 @@ namespace Dexc.Telemetry
 			}
 		}
 
-		internal TelemetrySpan Start(TelemetryTracer tracer, string name, TelemetryContext parent, TelemetryDetail detail)
+		/// <param name="ambient">
+		/// False for a span of this package around the game, such as a frame of a capture: it neither follows nor becomes the
+		/// ambient context, so the spans of the game do not nest in it.
+		/// </param>
+		internal TelemetrySpan Start(TelemetryTracer tracer, string name, TelemetryContext parent, TelemetryDetail detail, bool ambient = true)
 		{
 			if (m_Frames == null || detail > m_Metrics.Detail)
 			{
@@ -154,11 +159,11 @@ namespace Dexc.Telemetry
 				m_Dropped.Add(1, TelemetryDetail.Basic);
 				return default;
 			}
-			var ambient = Current;
-			var effective = parent.IsValid ? parent : ambient;
+			var effective = parent.IsValid || !ambient ? parent : Current;
 			var index = m_Free[--m_FreeCount];
 			var slot = m_Slots[index];
 			slot.IsOpen = true;
+			slot.IsAmbient = ambient && m_UsesAmbient;
 			slot.Tracer = tracer;
 			slot.Name = name;
 			slot.Parent = effective;
@@ -166,7 +171,7 @@ namespace Dexc.Telemetry
 				? new TelemetryContext(effective.TraceHigh, effective.TraceLow, NextId())
 				: new TelemetryContext(NextId(), NextId(), NextId());
 			slot.StartTicks = DateTime.UtcNow.Ticks;
-			if (m_UsesAmbient)
+			if (slot.IsAmbient)
 			{
 				m_Ambient.Value = slot.Context;
 			}
@@ -216,7 +221,7 @@ namespace Dexc.Telemetry
 				return;
 			}
 			var ticks = DateTime.UtcNow.Ticks;
-			if (m_UsesAmbient)
+			if (slot.IsAmbient)
 			{
 				m_Ambient.Value = slot.Parent;
 			}

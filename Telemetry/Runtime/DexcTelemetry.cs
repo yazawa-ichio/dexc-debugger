@@ -37,8 +37,35 @@ namespace Dexc.Telemetry
 			var metrics = files.Open("metrics");
 			var logs = files.Open("logs");
 			var traces = files.Open("traces");
-			root.Start(metrics, logs, traces, options, Resource(options, run), Time.realtimeSinceStartupAsDouble);
+			root.Start(metrics, logs, traces, options, Resource(options, run), Time.realtimeSinceStartupAsDouble, files);
 			return metrics.Path;
+		}
+
+		/// <summary>
+		/// Captures the next frames: from the next frame on, records at <paramref name="detail"/> and writes the metrics every
+		/// frame, inside a <c>dexc.capture</c> span with a <c>unity.frame</c> span per frame. Then the detail and the interval
+		/// come back. It is a plain static call, so that an eval can make it. What the compile symbols removed stays removed.
+		/// </summary>
+		/// <param name="frames">How many frames.</param>
+		/// <param name="detail">The detail during the capture. A finer detail already set stays.</param>
+		/// <param name="unityProfiler">
+		/// Also logs the Unity Profiler to <c>capture-&lt;run&gt;-&lt;n&gt;.raw</c> beside the telemetry, where it exists: the Editor
+		/// and a Development Build. The Profiler window of the Editor opens it. It counts toward the limit of the folder.
+		/// </param>
+		/// <returns>False when telemetry is not running or a capture is already on.</returns>
+		/// <exception cref="ArgumentOutOfRangeException">The frames are zero or fewer.</exception>
+		public static bool Capture(int frames, TelemetryDetail detail = TelemetryDetail.Detailed, bool unityProfiler = false)
+		{
+			return TelemetryRoot.Current.Capture(frames, detail, unityProfiler);
+		}
+
+		/// <summary>True from <see cref="Capture"/> until its last frame.</summary>
+		public static bool IsCapturing => TelemetryRoot.Current.IsCapturing;
+
+		/// <summary>Ends the capture at the next frame. One that has not begun is dropped.</summary>
+		public static void StopCapture()
+		{
+			TelemetryRoot.Current.StopCapture();
 		}
 
 		/// <summary>Writes what is left and closes the file. Does nothing when not running.</summary>

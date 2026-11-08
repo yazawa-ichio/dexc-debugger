@@ -91,6 +91,29 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
+		public void ProfilerFilesOfCapturesCountTowardTheLimit()
+		{
+			Directory.CreateDirectory(m_Directory);
+			Old("capture-old-1.raw", 600, 30);
+			Old("other.raw", 5000, 40);
+			Old("logs-a.otlp", 600, 20);
+			var files = new TelemetryFileSet(m_Directory, "run", 1000, 1300);
+
+			var path = files.ProfilerPath(2);
+			File.WriteAllBytes(path, new byte[700]);
+			files.Trim();
+
+			Assert.That(Path.GetFileName(path), Is.EqualTo("capture-run-2.raw"));
+			Assert.That(Files(), Is.EqualTo(new[] { "capture-run-2.raw", "logs-a.otlp", "other.raw" }), "the one being written stays");
+
+			files.Closed(path);
+			File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-50));
+			Old("logs-b.otlp", 300, 0);
+			files.Trim();
+			Assert.That(Files(), Is.EqualTo(new[] { "logs-a.otlp", "logs-b.otlp", "other.raw" }));
+		}
+
+		[Test]
 		public void TheFilesBeingWrittenAreKept()
 		{
 			var files = new TelemetryFileSet(m_Directory, "run", 10, 30);

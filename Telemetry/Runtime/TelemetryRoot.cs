@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -23,12 +24,18 @@ namespace Dexc.Telemetry
 		TelemetryFrameWriter m_LogFrames;
 		TelemetryFrameWriter m_TraceFrames;
 		readonly List<ITelemetryLogAdapter> m_Adapters = new List<ITelemetryLogAdapter>();
+		readonly TelemetryCapture m_Capture;
 		TelemetryDriver m_Driver;
 		TelemetrySources m_Sources;
+		TelemetryFileSet m_Files;
 		double m_Interval;
 		double m_NextExport;
+		bool m_RestartsInterval;
+		bool m_IsInPlayerLoop;
 
 		internal bool IsRunning => m_MetricsFrames != null;
+
+		internal bool IsCapturing => m_Capture.IsCapturing;
 
 		TelemetryRoot()
 		{
@@ -36,6 +43,7 @@ namespace Dexc.Telemetry
 			Traces = new TelemetryTraces(Metrics);
 			Traces.WriteFailed = Fail;
 			Logs = new TelemetryLogs(Metrics, Traces);
+			m_Capture = new TelemetryCapture(Metrics, Traces);
 		}
 
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -51,16 +59,19 @@ namespace Dexc.Telemetry
 			s_Current = null;
 		}
 
-		/// <summary>Starts writing to the frames, which this root owns from here on.</summary>
+		/// <summary>Starts writing to the frames, which this root owns from here on. Without files a capture writes no Unity Profiler file.</summary>
 		internal void Start(
 			TelemetryFrameWriter metricsFrames,
 			TelemetryFrameWriter logFrames,
 			TelemetryFrameWriter traceFrames,
 			TelemetryOptions options,
 			IReadOnlyList<KeyValuePair<string, string>> resource,
-			double now
+			double now,
+			TelemetryFileSet files = null
 		)
 		{
+			m_Files = files;
+			m_RestartsInterval = false;
 			Metrics.SetResource(resource);
 			Metrics.Detail = options.Detail;
 			Logs.DefaultLevel = options.MinimumSeverity;
@@ -90,14 +101,42 @@ namespace Dexc.Telemetry
 			if (Application.isPlaying)
 			{
 				var driver = new GameObject("DexcTelemetry") { hideFlags = HideFlags.HideAndDontSave };
-				Object.DontDestroyOnLoad(driver);
+				UnityEngine.Object.DontDestroyOnLoad(driver);
 				m_Driver = driver.AddComponent<TelemetryDriver>();
 				m_Driver.Root = this;
+				TelemetryPlayerLoop.Install(OnPlayerLoop);
+				m_IsInPlayerLoop = true;
 			}
 		}
 
-		/// <summary>Takes the numbers of the frame that just ended.</summary>
-		internal void OnFrame(double deltaSeconds)
+		/// <summary>Asks for a capture from the next frame boundary. False when not running or already capturing.</summary>
+		internal bool Capture(int frames, TelemetryDetail detail, bool unityProfiler)
+		{
+			if (frames <= 0)
+			{
+				throw new ArgumentOutOfRangeException(nameof(frames), "A capture needs at least one frame.");
+			}
+			if (!IsRunning || m_Capture.IsCapturing)
+			{
+				return false;
+			}
+			m_Capture.Request(frames, detail, unityProfiler);
+			return true;
+		}
+
+		internal void StopCapture()
+		{
+			m_Capture.RequestStop();
+		}
+
+		void OnPlayerLoop()
+		{
+			OnFrame(Time.unscaledDeltaTime, Time.frameCount);
+			Tick(Time.realtimeSinceStartupAsDouble);
+		}
+
+		/// <summary>Takes the numbers of the frame that just ended, at the boundary before the frame of this number.</summary>
+		internal void OnFrame(double deltaSeconds, int frame = 0)
 		{
 			m_Sources?.OnFrame(deltaSeconds);
 			if (!IsRunning)
@@ -108,6 +147,24 @@ namespace Dexc.Telemetry
 			{
 				Logs.Drain(m_LogFrames);
 				Traces.Drain();
+				if (m_Capture.IsActive)
+				{
+					if (m_Capture.NextFrame(frame))
+					{
+						m_RestartsInterval = true;
+						Flush();
+					}
+					else
+					{
+						ExportMetrics(TelemetrySources.Timestamp());
+					}
+				}
+				if (m_Capture.IsPending)
+				{
+					// What came before goes out first, so that the first frame of the capture stands alone.
+					Flush();
+					m_Capture.Begin(frame, m_Files);
+				}
 			}
 			catch (IOException exception)
 			{
@@ -115,9 +172,20 @@ namespace Dexc.Telemetry
 			}
 		}
 
+		/// <summary>Writes at the interval. A capture writes every frame instead, and the interval starts again after it.</summary>
 		internal void Tick(double now)
 		{
-			if (IsRunning && now >= m_NextExport)
+			if (!IsRunning || m_Capture.IsCapturing)
+			{
+				return;
+			}
+			if (m_RestartsInterval)
+			{
+				m_RestartsInterval = false;
+				m_NextExport = now + m_Interval;
+				return;
+			}
+			if (now >= m_NextExport)
 			{
 				m_NextExport = now + m_Interval;
 				Flush();
@@ -134,12 +202,10 @@ namespace Dexc.Telemetry
 			try
 			{
 				var started = TelemetrySources.Timestamp();
-				m_Sources?.BeforeExport();
 				Logs.Drain(m_LogFrames);
 				Logs.Flush(m_LogFrames);
 				Traces.Flush();
-				var bytes = Metrics.Export(m_MetricsFrames);
-				m_Sources?.AfterExport(started, bytes);
+				ExportMetrics(started);
 			}
 			catch (IOException exception)
 			{
@@ -147,9 +213,17 @@ namespace Dexc.Telemetry
 			}
 		}
 
-		/// <summary>Writes what is left and closes the output.</summary>
+		void ExportMetrics(long started)
+		{
+			m_Sources?.BeforeExport();
+			var bytes = Metrics.Export(m_MetricsFrames);
+			m_Sources?.AfterExport(started, bytes);
+		}
+
+		/// <summary>Writes what is left and closes the output. A capture ends first, so that its spans are written.</summary>
 		internal void Stop()
 		{
+			m_Capture.End();
 			Flush();
 			Close();
 		}
@@ -177,9 +251,16 @@ namespace Dexc.Telemetry
 			m_TraceFrames = null;
 			m_Sources?.Dispose();
 			m_Sources = null;
+			m_Capture.End();
+			m_Files = null;
+			if (m_IsInPlayerLoop)
+			{
+				TelemetryPlayerLoop.Uninstall();
+				m_IsInPlayerLoop = false;
+			}
 			if (m_Driver != null)
 			{
-				Object.Destroy(m_Driver.gameObject);
+				UnityEngine.Object.Destroy(m_Driver.gameObject);
 			}
 			m_Driver = null;
 		}

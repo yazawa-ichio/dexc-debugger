@@ -233,17 +233,39 @@ using (var span = tracer.Start("stage.load"))
 - main threadの取り出しは、件数をロックなしで先に読み、0件ならロックを取らない。.NET 10のReleaseで、キューへ入れるのは約33ns、スレッドの判定は約0.5nsだった（IL2CPPでは最後の確認で測る）
 - 値を返すので`ConditionalAttribute`では消せない。実行時は`TelemetryOptions.Detail`で止まる。呼び出しごと消すのはIL処理の役割である
 - 属性は8個までで、超えた分は`dropped_attributes_count`で数える。同じキーをもう一度渡すと値を上書きする。スロットごとに8個分を持ち、256個で約64KBである
-- 通常時に毎フレームのspanは作らない
+- 通常時に毎フレームのspanは作らない。作るのはキャプチャの間だけである
 - `Stop`の時点で開いているspanは書かない
 - ファイルは`traces-<run>.otlp`である。64KBのバッファーへためて、埋まると書き、書き出しの間隔でも書く
+
+## キャプチャ
+
+```csharp
+DexcTelemetry.Capture(120);                                   // 次の120フレーム
+DexcTelemetry.Capture(300, TelemetryDetail.Detailed, unityProfiler: true);
+DexcTelemetry.StopCapture();
+```
+
+- `Capture(frames, detail, unityProfiler)`は、次のフレームの区切りから`frames`フレームの間、詳細度を`detail`へ上げ、Metricsを毎フレーム書く。終わると詳細度と書き出しの間隔を元に戻す。すでに細かい詳細度なら下げない
+- 普段と同じファイルへ書く。Metricsは書き出しごとに区間を区切る方式なので、同じ計器を別のファイルへ分けて書くと集計が2つ要るためである。区間は`dexc.capture`のspanで示し、フレームごとに子の`unity.frame`のspanを作る。`unity.frame.number`は`Time.frameCount`である
+- キャプチャのspanは`AsyncLocal`の親を使わず、親にもならない。ゲームのspanがフレームのspanの下へ入らないようにするためである
+- 公開のstaticのAPIなので、Autopilotの`eval`からそのまま呼べる。パッケージにサーバーは持たせない
+- 動いていないとき、キャプチャ中のときは`false`を返す。`StopCapture`は次のフレームの区切りで終える。始まる前なら取り消す。`Stop`はキャプチャを終えてから書く
+- シンボルやIL処理で消した呼び出しは、キャプチャでも戻らない。リリース版で何を取れるかは、残した詳細度で決まる
+- ログの重大度は変えない。必要なら`SetLogLevel`を呼ぶ
+- 毎フレームの書き出しは、IL2CPPの実測（計測元を含め約87µs、約1.9KB）からの推測で、60fpsのフレーム時間の約0.5%、300フレームで約570KBである
+- `unityProfiler`を有効にすると、Unity Profilerを`capture-<run>-<n>.raw`へ書く。`Profiler.logFile`、`enableBinaryLog`、`enabled`を使い、終わりに`logFile`を空にしてファイルを閉じ、`enabled`を元に戻す。EditorのProfilerの窓で開ける
+  - Profilerが無いPlayer（`Profiler.supported`がfalse）と、ほかがすでにバイナリのログを書いているときは書かない。テレメトリーの記録は続ける
+  - `.raw`もフォルダーの上限に数える。上限は`MaximumDirectoryBytes`で変えられる
+  - Development Build以外での動きと、`.raw`の大きさは、最後のPlayerの確認で確かめる
 
 ## 実行
 
 - `DexcTelemetry.Start(options)`が実行ごとに新しいファイルを開き、`Stop`が残りを書いて閉じる。`Start`の前の記録は、`Start`の後の最初の書き出しに含まれる
 - ファイルは`<Directory>/metrics-<run>.otlp`、`logs-<run>.otlp`、`traces-<run>.otlp`である。`Directory`の既定値は`Application.persistentDataPath`の`Telemetry`である
 - `MaximumFileBytes`（既定8MiB）を超えると、フレームの切れ目で`logs-<run>-1.otlp`のように次のファイルへ移る
-- フォルダーが`MaximumDirectoryBytes`（既定64MiB）を超えると、書き込み中のものを除き、古い`.otlp`から消す。問題の直前の記録を残すためである。実行の開始時とファイルの切り替え時に確認する
+- フォルダーが`MaximumDirectoryBytes`（既定64MiB）を超えると、書き込み中のものを除き、古い`.otlp`とキャプチャの`capture-*.raw`から消す。問題の直前の記録を残すためである。実行の開始時とファイルの切り替え時に確認する
 - Metricsの書き出しの間隔は既定60秒である。Metricsは区間の集計なので、メモリの量は間隔に関係しない。データの無い計器は書かず、すべて無ければフレームも書かない
+- フレームの処理はPlayerLoopの`Initialization`の最後で行う。前のフレームの記録とUnityの計測値がそろった後であり、処理自体は次のフレームのProfilerのフレームに入る。Play Modeのときだけ登録し、`Stop`で外す
 - `OnApplicationPause`と`OnApplicationQuit`でも書く
 - 書き込みが`IOException`で失敗したら、`Debug.LogException`で出力し、以後の出力をやめる。ゲームは止めない
 - Resourceには`service.name`、`service.version`、`service.instance.id`（実行ごとに固有）、`telemetry.sdk.name`と、`ResourceAttributes`を載せる

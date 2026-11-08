@@ -13,6 +13,8 @@ namespace Dexc.Telemetry
 	internal sealed class TelemetryFileSet
 	{
 		internal const string Extension = ".otlp";
+		const string ProfilerPrefix = "capture-";
+		const string ProfilerExtension = ".raw";
 
 		readonly string m_Directory;
 		readonly string m_Run;
@@ -48,15 +50,23 @@ namespace Dexc.Telemetry
 			return stream;
 		}
 
+		/// <summary>The path of the Unity Profiler file of a capture. It is kept as open until <see cref="Closed"/>.</summary>
+		internal string ProfilerPath(int capture)
+		{
+			var path = Path.Combine(m_Directory, ProfilerPrefix + m_Run + "-" + capture + ProfilerExtension);
+			m_Open.Add(path);
+			return path;
+		}
+
 		internal void Closed(string path)
 		{
 			m_Open.Remove(path);
 		}
 
-		/// <summary>Deletes the oldest closed files until the folder is under its limit.</summary>
+		/// <summary>Deletes the oldest closed files until the folder is under its limit. Unity Profiler files of captures count.</summary>
 		internal void Trim()
 		{
-			var files = new DirectoryInfo(m_Directory).GetFiles("*" + Extension).OrderBy(file => file.LastWriteTimeUtc).ToList();
+			var files = new DirectoryInfo(m_Directory).GetFiles().Where(file => IsOwn(file.Name)).OrderBy(file => file.LastWriteTimeUtc).ToList();
 			var total = files.Sum(file => file.Length);
 			foreach (var file in files)
 			{
@@ -79,6 +89,12 @@ namespace Dexc.Telemetry
 					Debug.LogWarning(exception.Message);
 				}
 			}
+		}
+
+		static bool IsOwn(string name)
+		{
+			return name.EndsWith(Extension, StringComparison.OrdinalIgnoreCase)
+				|| (name.StartsWith(ProfilerPrefix, StringComparison.OrdinalIgnoreCase) && name.EndsWith(ProfilerExtension, StringComparison.OrdinalIgnoreCase));
 		}
 	}
 }
