@@ -9,7 +9,8 @@
     "Dexc.Remote",
     "Unity.RenderPipelines.Universal.Runtime",
     "Unity.RenderPipelines.Core.Runtime",
-    "Dexc.Autopilot"
+    "Dexc.Autopilot",
+    "Dexc.Telemetry"
   ],
   "includePlatforms": [
     "Editor"
@@ -28,6 +29,11 @@
       "name": "com.unity.ugui",
       "expression": "1.0.0",
       "define": "DEXC_HAS_UGUI"
+    },
+    {
+      "name": "jp.yazawa-ichio.dexc-telemetry",
+      "expression": "",
+      "define": "DEXC_HAS_TELEMETRY"
     }
   ],
   "noEngineReferences": false,

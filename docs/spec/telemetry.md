@@ -308,6 +308,7 @@ DexcTelemetry.StopCapture();
 - ファイルに直接触れられない環境のために、`DexcTelemetry.Files()`、`ReadFile(name, offset, buffer)`、`DeleteFile(name)`を持つ。運ぶ経路はパッケージに持たせない（Autopilotの接続はT9）
 - ホストのCLIの`pull`は、フォルダー（Windows、Editor）とadb（Android）から取る
 - Autopilotのワークスペースは、`ws telemetry pull`でevalから`Seal`を呼び、各ビルドのフォルダーから集める（[Autopilotの仕様](autopilot.md#テレメトリー)）
+- Dexcは、このパッケージがあれば`DEXC_HAS_TELEMETRY`を定義し（Version Defines）、デバッグメニューのPanelsに`Telemetry`を足す。動作中か、書き出し先（`DexcTelemetry.Folder`）、キャプチャ、`Seal`を持つ。このパッケージはDexcを参照しない
 
 ### Push（サーバーがあるとき）
 

@@ -160,8 +160,7 @@ namespace Dexc.Telemetry
 		/// </summary>
 		public static IReadOnlyList<TelemetryFile> Files()
 		{
-			var root = TelemetryRoot.Current;
-			var folder = Folder(root);
+			var folder = Folder;
 			if (!Directory.Exists(folder))
 			{
 				return Array.Empty<TelemetryFile>();
@@ -199,10 +198,8 @@ namespace Dexc.Telemetry
 			return true;
 		}
 
-		static string Folder(TelemetryRoot root)
-		{
-			return root.Folder ?? Path.Combine(Application.persistentDataPath, "Telemetry");
-		}
+		/// <summary>The folder of the files: of the current run, or of the last one, or the default before any.</summary>
+		public static string Folder => TelemetryRoot.Current.Folder ?? Path.Combine(Application.persistentDataPath, "Telemetry");
 
 		static string PathOf(string name)
 		{
@@ -210,7 +207,7 @@ namespace Dexc.Telemetry
 			{
 				throw new ArgumentException("Not a telemetry file: " + name, nameof(name));
 			}
-			return Path.Combine(Folder(TelemetryRoot.Current), name);
+			return Path.Combine(Folder, name);
 		}
 
 		/// <summary>The counter of this name, made on first use.</summary>
