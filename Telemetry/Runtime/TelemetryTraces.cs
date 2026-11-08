@@ -7,7 +7,9 @@ namespace Dexc.Telemetry
 {
 	/// <summary>
 	/// The open spans and the encoding of ended ones into TracesData frames. An open span is a slot of a fixed pool, so a
-	/// span allocates nothing. The slots are made by the first span. Main thread only, except <see cref="Current"/>.
+	/// span allocates nothing. The slots are made by the first span. Spans start on the main thread. Attributes and the end
+	/// may come from the thread an await went on with: such an end only goes into a queue, and <see cref="Drain"/> encodes it
+	/// on the main thread. The queue holds one end per slot at most, so it never fills.
 	/// </summary>
 	internal sealed class TelemetryTraces
 	{
@@ -33,6 +35,8 @@ namespace Dexc.Telemetry
 			internal int DroppedAttributes;
 			internal bool HasError;
 			internal string ErrorMessage;
+			internal bool IsEnding;
+			internal long EndTicks;
 		}
 
 		readonly TelemetryMetrics m_Metrics;
@@ -40,9 +44,14 @@ namespace Dexc.Telemetry
 		readonly TelemetryCounter m_Dropped;
 		readonly Dictionary<string, TelemetryTracer> m_Tracers = new Dictionary<string, TelemetryTracer>(StringComparer.Ordinal);
 		readonly AsyncLocal<TelemetryContext> m_Ambient = new AsyncLocal<TelemetryContext>();
+		readonly object m_EndedLock = new object();
 		Slot[] m_Slots;
 		int[] m_Free;
 		int m_FreeCount;
+		int[] m_Ended;
+		int[] m_Draining;
+		int m_EndedCount;
+		int m_MainThread;
 		TelemetryFrameWriter m_Frames;
 		bool m_UsesAmbient;
 		ulong m_Random;
@@ -76,6 +85,9 @@ namespace Dexc.Telemetry
 
 		internal void Begin(TelemetryFrameWriter frames, bool usesAmbient)
 		{
+			// Ends that came in after the last run are released unwritten.
+			Drain();
+			m_MainThread = Environment.CurrentManagedThreadId;
 			m_Frames = frames;
 			m_UsesAmbient = usesAmbient;
 			var seed = Guid.NewGuid().ToByteArray();
@@ -87,10 +99,40 @@ namespace Dexc.Telemetry
 		{
 			m_Frames = null;
 			m_UsesAmbient = false;
+			Drain();
+		}
+
+		/// <summary>
+		/// Encodes the ends that came from other threads and gives their slots back. Main thread. The count is read without
+		/// the lock first: most frames have none, and an end that comes in meanwhile waits for the next frame.
+		/// </summary>
+		internal void Drain()
+		{
+			if (Volatile.Read(ref m_EndedCount) == 0)
+			{
+				return;
+			}
+			int count;
+			lock (m_EndedLock)
+			{
+				count = m_EndedCount;
+				m_EndedCount = 0;
+				var swapped = m_Ended;
+				m_Ended = m_Draining;
+				m_Draining = swapped;
+			}
+			for (var i = 0; i < count; i++)
+			{
+				var index = m_Draining[i];
+				var slot = m_Slots[index];
+				Write(slot, slot.EndTicks);
+				Release(index, slot);
+			}
 		}
 
 		internal void Flush()
 		{
+			Drain();
 			if (m_Frames != null)
 			{
 				m_Batch.Flush(m_Frames);
@@ -165,28 +207,46 @@ namespace Dexc.Telemetry
 			{
 				return;
 			}
+			var ticks = DateTime.UtcNow.Ticks;
 			if (m_UsesAmbient)
 			{
 				m_Ambient.Value = slot.Parent;
 			}
-			if (m_Frames != null)
+			if (Environment.CurrentManagedThreadId != m_MainThread)
 			{
-				try
+				slot.EndTicks = ticks;
+				slot.IsEnding = true;
+				lock (m_EndedLock)
 				{
-					Encode(slot, DateTime.UtcNow.Ticks);
+					m_Ended[m_EndedCount++] = index;
 				}
-				catch (IOException exception)
-				{
-					WriteFailed(exception);
-				}
+				return;
 			}
+			Write(slot, ticks);
 			Release(index, slot);
 		}
 
+		/// <summary>The slot of a span still open. An end waiting in the queue counts as closed.</summary>
 		Slot Open(int index, int generation)
 		{
 			var slot = m_Slots[index];
-			return slot.IsOpen && slot.Generation == generation ? slot : null;
+			return slot.IsOpen && !slot.IsEnding && slot.Generation == generation ? slot : null;
+		}
+
+		void Write(Slot slot, long endTicks)
+		{
+			if (m_Frames == null)
+			{
+				return;
+			}
+			try
+			{
+				Encode(slot, endTicks);
+			}
+			catch (IOException exception)
+			{
+				WriteFailed(exception);
+			}
 		}
 
 		void Encode(Slot slot, long endTicks)
@@ -247,6 +307,7 @@ namespace Dexc.Telemetry
 		void Release(int index, Slot slot)
 		{
 			slot.IsOpen = false;
+			slot.IsEnding = false;
 			slot.Generation++;
 			slot.Tracer = null;
 			slot.Name = null;
@@ -263,6 +324,8 @@ namespace Dexc.Telemetry
 		{
 			m_Slots = new Slot[SlotCapacity];
 			m_Free = new int[SlotCapacity];
+			m_Ended = new int[SlotCapacity];
+			m_Draining = new int[SlotCapacity];
 			for (var i = 0; i < SlotCapacity; i++)
 			{
 				m_Slots[i] = new Slot();

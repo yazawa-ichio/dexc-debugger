@@ -228,7 +228,9 @@ using (var span = tracer.Start("stage.load"))
 - 親子関係は`TelemetryContext`を明示して渡す。awaitをまたいでも、そのまま渡せる
 - `TelemetryOptions.AmbientContext`を有効にすると、`AsyncLocal`で親を引き継ぐ。明示した親のほうを優先する。IL2CPPでは設定と解除に1.1〜1.4µsと519Bかかるので、既定は無効である
 - `logger.WithContext(context)`で、ログに`trace_id`と`span_id`を付ける。`AmbientContext`が有効なら自動で付く
-- 記録はmain threadだけである。公式と違い、`ConfigureAwait(false)`などで別スレッドへ移った継続でのspanの終了は対象外である
+- spanの開始はmain threadだけである。属性、エラー、終了は、`ConfigureAwait(false)`などで別スレッドへ移った継続からも呼べる。1つのspanを同時に複数のスレッドから触るのは対象外である
+- main threadでの終了は、その場でエンコードする。別スレッドでの終了は、終了の時刻を記録してスロットの番号をロック付きのキューへ入れるだけにし、次のフレームにmain threadでエンコードする。キューは開いているspan1つにつき1件までなので、スロット数で足りて溢れない
+- main threadの取り出しは、件数をロックなしで先に読み、0件ならロックを取らない。.NET 10のReleaseで、キューへ入れるのは約33ns、スレッドの判定は約0.5nsだった（IL2CPPでは最後の確認で測る）
 - 値を返すので`ConditionalAttribute`では消せない。実行時は`TelemetryOptions.Detail`で止まる。呼び出しごと消すのはIL処理の役割である
 - 属性は4個までで、超えた分は`dropped_attributes_count`で数える
 - 通常時に毎フレームのspanは作らない

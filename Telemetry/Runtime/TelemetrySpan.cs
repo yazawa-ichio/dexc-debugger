@@ -4,7 +4,9 @@ namespace Dexc.Telemetry
 {
 	/// <summary>
 	/// A stretch of work, open until <see cref="Dispose"/>. It is a handle, so it allocates nothing and can be kept across an
-	/// await. A span that was not recorded does nothing. Main thread only: the end of a span must come back to it.
+	/// await. A span that was not recorded does nothing. It starts on the main thread. <see cref="Set"/>, <see cref="SetError"/>
+	/// and <see cref="Dispose"/> may come from another thread, such as after <c>ConfigureAwait(false)</c>, one thread at a time.
+	/// Such an end is written on the next frame.
 	/// </summary>
 	public readonly struct TelemetrySpan : IDisposable
 	{

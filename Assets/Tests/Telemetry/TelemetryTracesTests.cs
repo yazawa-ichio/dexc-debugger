@@ -273,6 +273,54 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[Test]
+		public void AnEndOnAnotherThreadIsWrittenWithItsAttributes()
+		{
+			Start();
+			var span = m_Tracer.Start("x");
+
+			Task.Run(() =>
+			{
+				span.Set("stage", 3);
+				span.Dispose();
+			}).Wait();
+
+			var record = Spans().Single();
+			var attribute = ProtobufTestReader.Read(One(record, 9).Bytes);
+			Assert.That(One(attribute, 1).Text, Is.EqualTo("stage"));
+			Assert.That(One(record, 8).Value, Is.GreaterThanOrEqualTo(One(record, 7).Value));
+		}
+
+		[Test]
+		public void EndingTwiceOnAnotherThreadWritesOnce()
+		{
+			Start();
+			var span = m_Tracer.Start("x");
+
+			Task.Run(() =>
+			{
+				span.Dispose();
+				span.Dispose();
+			}).Wait();
+			span.Dispose();
+
+			Assert.That(Spans().Count, Is.EqualTo(1));
+		}
+
+		[Test]
+		public void TheSlotOfAnEndOnAnotherThreadComesBackOnTheNextFrame()
+		{
+			Start();
+			var open = Enumerable.Range(0, 256).Select(_ => m_Tracer.Start("open")).ToList();
+
+			Task.Run(() => open[0].Dispose()).Wait();
+			Assert.That(m_Tracer.Start("before").Context.IsValid, Is.False, "the end is still queued");
+
+			m_Root.OnFrame(0.016);
+
+			Assert.That(m_Tracer.Start("after").Context.IsValid, Is.True);
+		}
+
+		[Test]
 		public void TooManyOpenSpansAreDroppedAndCounted()
 		{
 			Start();

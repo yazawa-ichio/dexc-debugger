@@ -107,6 +107,7 @@ namespace Dexc.Telemetry
 			try
 			{
 				Logs.Drain(m_LogFrames);
+				Traces.Drain();
 			}
 			catch (IOException exception)
 			{
