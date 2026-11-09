@@ -4,7 +4,8 @@
   "references": [
     "Dexc.QA",
     "Dexc.Telemetry",
-    "Dexc.Runtime"
+    "Dexc.Runtime",
+    "DexcDebugger.Tests.Runtime"
   ],
   "includePlatforms": [
     "Editor"

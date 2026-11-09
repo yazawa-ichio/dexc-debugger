@@ -369,6 +369,10 @@ namespace Dexc.QA
 #endif
 			model.Add(Member("logs", Logs()));
 			model.Add(Member("diagnostics", Diagnostics()));
+			if (m_Options.InspectorWatches)
+			{
+				model.Add(Member("inspector", QAInspector.Watches()));
+			}
 			return model;
 		}
 

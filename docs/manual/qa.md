@@ -76,6 +76,8 @@ DexcQA.AddSink(new MyIssueTrackerSink()); // 書いた後に呼ばれます
 
 例外とエラーのログは、何もしなくても報告になります。同じ不具合は3件まで詳しく書き、あとは数えます。
 
+Dexc InspectorでWatchに入れたfieldは、その時の値が報告に載ります（`DexcQAOptions.InspectorWatches`、既定は有効）。調べたい値をWatchに入れておくと、不具合の報告で値の移り変わりを追えます。
+
 ### Botの検査
 
 Botは、見たことが正しいかを`DexcQA.Check`で確かめます。

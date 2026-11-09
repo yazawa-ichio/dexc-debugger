@@ -54,6 +54,15 @@
 - 実行ごとの`signatures-<実行>.json`に、鍵ごとの種類、題名、回数、最初と最後の時刻、詳しく書いた報告のidを書く。報告を書いたとき、10秒ごと（変化があれば）、`DexcQA.Flush()`、中断、終了で書く
 - テレメトリーのファイルは閉じない。報告のたびに`Seal`すると、書き込みを待つためmain threadが止まりうるからである。時刻でテレメトリーと突き合わせる
 
+## Inspectorとの連携
+
+`InspectorWatches`（既定は有効）で、報告にDexc InspectorのWatchを載せる。人やエージェントがWatchに入れたfieldは、不具合のときに見たい値だからである。
+
+- 公開のread APIだけを使う（`GetWatches`、`GetRegistered`、`GetComponents`、`GetFields`）。4機能の上のadapterとして読むので、連携のパッケージへそのまま移せる
+- Watchごとに、対象（登録したラベルとパス。Sceneから辿った対象は無し）、Component、fieldの表示名、Watchの状態、値の写しを書く。値は`DebugValue`をそのまま数値、文字列、配列、objectにする。Unity参照はラベル、読めない値は型名とエラーを書く
+- 50件までとする。Dexcが動いていなければ`inspector`はnullである
+- Inspectorのhandleはその実行の中でしか意味を持たないので、報告には値の写しだけを残す。名前を引けなかったWatch（対象が消えた等）は、`error`に理由を書き、ログには書かない
+
 ## 拡張点
 
 | 拡張点 | 呼ばれるとき |
