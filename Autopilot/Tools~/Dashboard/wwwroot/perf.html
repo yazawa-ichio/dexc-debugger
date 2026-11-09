@@ -74,7 +74,11 @@
 		for (const name of [...histograms].sort()) {
 			if (![...picker.options].some(option => option.value === name)) picker.append(element("option", { value: name }, name));
 		}
-		if (!picker.value) picker.value = histograms.has("unity.frame.time") ? "unity.frame.time" : picker.options[0]?.value || "";
+		// A select takes its first option on its own: the frame time is chosen once, the first time it is there.
+		if (!picker.dataset.chosen && histograms.has("unity.frame.time")) {
+			picker.value = "unity.frame.time";
+			picker.dataset.chosen = "yes";
+		}
 		if (!picker.value) return;
 		const rows = await Dexc.get("/api/perf/summary?metric=" + encodeURIComponent(picker.value));
 		const first = {};
@@ -229,7 +233,10 @@
 		setTimeout(() => { scheduled = false; load(); }, 2000);
 	});
 	window.addEventListener("resize", draw);
-	document.getElementById("summary-metric").addEventListener("change", summary);
+	document.getElementById("summary-metric").addEventListener("change", event => {
+		event.target.dataset.chosen = "yes";
+		summary();
+	});
 	load();
 </script>
 </body>
