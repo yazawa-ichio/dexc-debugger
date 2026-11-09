@@ -107,6 +107,37 @@ namespace Dexc.Autopilot.Dashboard
 			app.MapGet("/api/perf/hitches", (string build) => Json(Hub.Perf.Hitches(build ?? string.Empty)));
 			app.MapGet("/api/perf/spans", (string build) => Json(Hub.Perf.Spans(build ?? string.Empty)));
 			app.MapGet("/api/perf/logs", (string build) => Json(Hub.Perf.Logs(build ?? string.Empty)));
+			app.MapGet("/api/qa/defects", (string state) =>
+			{
+				var json = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
+				var defects = Compiler.QAStore.Read(Hub.Workspace()).Defects.Where(defect => string.IsNullOrEmpty(state) || defect.State == state);
+				return Json(System.Text.Json.JsonSerializer.SerializeToNode(defects.ToList(), json));
+			});
+			app.MapGet("/api/qa/report", (string build, string id) =>
+			{
+				var path = ReportFile(build, id, "report.json");
+				return path == null ? Results.NotFound() : Results.Text(File.ReadAllText(path), "application/json; charset=utf-8");
+			});
+			app.MapGet("/api/qa/file", (string build, string id, string name) =>
+			{
+				var path = ReportFile(build, id, name);
+				return path == null ? Results.NotFound() : Results.File(path, name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "application/octet-stream");
+			});
+			app.MapPost("/api/qa/state", async (HttpContext context) =>
+			{
+				var body = await Body(context);
+				try
+				{
+					Compiler.QAStore.SetState(Hub.Workspace(), Text(body, "id"), Text(body, "state"), "human", Text(body, "note"));
+				}
+				catch (InvalidOperationException exception)
+				{
+					return Results.BadRequest(exception.Message);
+				}
+
+				Hub.Publish("qa", new JsonObject());
+				return Results.NoContent();
+			});
 			app.MapGet("/api/decisions", () => Json(Hub.Relay.Decisions()));
 			app.MapGet("/api/journal", () => Json(Hub.Relay.Journal()));
 			app.MapPost("/api/decisions/answer", async (HttpContext context) =>
@@ -218,6 +249,17 @@ namespace Dexc.Autopilot.Dashboard
 				Console.Error.WriteLine("Forward to " + m_Forward + ": " + exception.Message);
 			}
 		}
+
+		/// <summary>A file of a gathered report, or null: names are plain, so nothing outside the reports is served.</summary>
+		private string ReportFile(string build, string id, string name)
+		{
+			if (!Plain(build) || !Plain(id) || !Plain(name))
+				return null;
+			var path = Path.Combine(Compiler.QAStore.Reports(Hub.Workspace(), build), id, name);
+			return File.Exists(path) ? path : null;
+		}
+
+		private static bool Plain(string name) => !string.IsNullOrEmpty(name) && Path.GetFileName(name) == name && name != "." && name != "..";
 
 		/// <summary>Under the two minutes a shell command of an agent may take by default.</summary>
 		public const double AgentWaitSeconds = 90;

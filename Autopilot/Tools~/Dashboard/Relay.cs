@@ -198,6 +198,28 @@ namespace Dexc.Autopilot.Dashboard
 			}
 		}
 
+		/// <summary>A defect seen for the first time, or again after it was marked fixed: the agent's to look at.</summary>
+		public void Defect(string what, QADefect defect)
+		{
+			var entry = new JsonObject
+			{
+				["kind"] = "defect",
+				["id"] = defect.Id,
+				["defect"] = what,
+				["signature"] = defect.Signature,
+				["type"] = defect.Kind,
+				["title"] = defect.Title,
+				["state"] = defect.State,
+				["count"] = defect.Count,
+				["builds"] = new JsonArray(defect.Builds.Keys.Select(build => (JsonNode)build).ToArray()),
+			};
+			lock (m_Gate)
+			{
+				Record(what, entry);
+				ForAgent(entry);
+			}
+		}
+
 		/// <summary>What the agent tells the people: what it does, what it found.</summary>
 		public void Say(string text)
 		{

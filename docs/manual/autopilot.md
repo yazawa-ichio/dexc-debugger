@@ -253,6 +253,8 @@ Dexc.Autopilot.Compiler ws eval "MyGame.Instance.Score"
 | `ws watch` | 保存を検知して読み込みます。`Common`の保存は全ビルドへ、`Builds/<name>`の保存はそのビルドへ送ります |
 | `ws telemetry <command>` | 各ビルドのDexc Telemetryを操作します。[テレメトリー](#テレメトリー)を参照してください |
 | `ws agent <command>` | ダッシュボードの、エージェントの側です。[ダッシュボード](#ダッシュボード)を参照してください |
+| `ws qa pull` | Dexc QAの報告を集め、不具合（`QA/defects.json`）にまとめます。新しい不具合と、直した後にまた起きた不具合を表示します |
+| `ws qa list [--state open]`／`ws qa show <id>`／`ws qa set <id> <state> [--note text]` | 不具合を見て、状態（`open`、`fixing`、`fixed`、`wontfix`）を変えます |
 
 `--build a,b`で対象のビルドを絞れます。`workspace.json`のある場所の外から使うときは、`DEXC_WORKSPACE`で指定します。
 
@@ -314,6 +316,7 @@ dotnet run --project <repo>/Autopilot/Tools~/Dashboard -c Release
 | --- | --- |
 | Builds | ビルドごとの状態、`log`、`failure`。答えを待つ質問、エージェントへの指示、経緯 |
 | Machines | マシンの状態と遷移の図。今の状態を塗り、割り込まれたマシンが戻る状態を枠で示します |
+| Defects | Dexc QAが見つけた不具合。ビルドごとの回数、経緯、スクリーンショットとログ。状態を変えられます |
 | Performance | 分布の表（ビルドと注釈ごと。最初のビルドよりp95が1割以上悪い行に印）、ロードの表、ヒッチの一覧、指標の線グラフ。`ws telemetry start --upload`で送らせたものです |
 
 #### Botの質問
@@ -340,7 +343,7 @@ Dexc.Autopilot.Compiler ws agent answer a d1 left  # ビルドaの質問d1に、
 Dexc.Autopilot.Compiler ws agent say "stage 2 を試します"
 ```
 
-- `wait`の1件は、`kind`が`decision`（質問）か`instruction`（指示）です。指示の`builds`が空なら、全ビルドへの指示です
+- `wait`の1件は、`kind`が`decision`（質問）、`instruction`（指示）、`defect`（新しい不具合か、直した後にまた起きた不具合）のどれかです。指示の`builds`が空なら、全ビルドへの指示です
 - 1件は1回だけ渡ります。`--timeout`で待つ秒数を変えられます。既定の90秒は、エージェントのシェルの既定の時間切れ（2分）に収まる長さです
 - 経緯は`.state/.dashboard/journal.jsonl`に残ります
 

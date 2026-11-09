@@ -111,6 +111,7 @@
 		const what = detail.kind === "decision" ? detail.build + " " + detail.id + ": " + detail.question + (detail.answer ? " = " + detail.answer + " (" + detail.answeredBy + ")" : "")
 			: detail.kind === "instruction" ? detail.id + ": " + detail.text
 			: detail.kind === "say" ? detail.text
+			: detail.kind === "defect" ? detail.id + " " + detail.title + " (" + detail.builds.join(", ") + ")"
 			: [detail.kind, detail.id, detail.build].filter(Boolean).join(" ");
 		return time + "  " + entry.event + "  " + what;
 	}

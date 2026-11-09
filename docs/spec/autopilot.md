@@ -206,6 +206,15 @@ Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルド
 - link.xmlは、ビルドに`Dexc.Telemetry`があれば丸ごと残す。evalからだけ呼ぶAPIがストリップされないためである
 - `ws telemetry start --upload`は、ダッシュボードが動いているときに、書き出しと送信を5秒ごとにして、`DexcTelemetry.StartUpload`でダッシュボードへ送らせる
 
+### 不具合
+
+- Dexc QAへの依存は持たない。`ws start`が`-dexc-qa-directory .state/<name>/qa`を渡し、パッケージのあるPlayerはそれで自分で始まる。link.xmlは、ビルドに`Dexc.QA`があれば丸ごと残す。BotとevalがQAのAPIを呼ぶためである（[QAの仕様](qa.md)）
+- 集めるのにevalを使わない。Playerが自分のフォルダーに報告と鍵ごとの回数を書くので、それを読む
+- `ws qa pull`は、まとまった報告を`QA/reports/<name>/`へ移し、回数のファイルを写して、`QA/defects.json`の不具合を新しくする。スクリーンショットを撮り終えていない報告は、Playerが動いている間は移さない
+- 不具合は鍵でまとめる。idは`D0001`から振る。回数はビルドと実行ごとに持ち、同じ実行は置き換え、実行どうしは足す。実行は回数を0から数えるためである。詳しい報告は10件まで紐づける
+- 状態は`open`、`fixing`、`fixed`、`wontfix`とする。`ws qa set <id> <state> --note`とダッシュボードで変え、変更は不具合の`notes`に残す。`fixed`にした後の時刻にまた起きたら`open`に戻し、そう記録する
+- `QA/defects.json`は`ws`とダッシュボードの両方が書くので、`QA/.lock`を取ってから読み書きする
+
 ### ダッシュボード
 
 `Autopilot/Tools~/Dashboard`の.NET 10の実行ファイルとする。`ws`のコマンドに含めないのは、Compilerの起動を軽く保ち、ASP.NET CoreとprotobufをCompilerに持ち込まないためである。ワークスペースの読み方はCompilerのコードを使う。
@@ -232,6 +241,12 @@ Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルド
 - エージェントへはロングポールで渡す（`POST /api/agent/next?timeout=`、既定90秒、上限300秒）。取り出しで1件が渡るので、POSTにしてトークンを求める
 - MCPのelicitationは、サーバーからクライアントの利用者へ聞く仕組みで、エージェントへ指示を流す用途に合わない。Claude CodeのChannelsはresearch previewのため使わない。必要になれば、このAPIの上に足す
 - 経緯（質問、回した、渡した、答えた、取り下げた、指示、エージェントの発言）は`.state/.dashboard/journal.jsonl`に追記し、起動時に直近200件を読む
+
+### 不具合の画面と通知
+
+- ダッシュボードは5秒ごとに`ws qa pull`と同じ収集を行う。新しい不具合（`found`）と、直した後にまた起きた不具合（`recurred`）は、エージェントの列へ`kind: defect`として入れ、journalに残す
+- 「Defects」のページは、状態で絞った一覧と、ビルドごとの回数、経緯、直近の詳しい報告（スクリーンショット、詳細、注釈、場所、resource、ログ）を見せる。人は状態を変えられる
+- `GET /api/qa/defects?state=`、`/api/qa/report?build=&id=`、`/api/qa/file?build=&id=&name=`、`POST /api/qa/state`。ファイルの名前は単なる名前だけを受け、報告のフォルダーの外は配らない
 
 ### 性能の受け取り
 

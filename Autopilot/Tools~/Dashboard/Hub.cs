@@ -46,6 +46,42 @@ namespace Dexc.Autopilot.Dashboard
 
 		public Relay Relay { get; }
 
+		/// <summary>How often the reports of the Players are gathered into defects.</summary>
+		public static readonly TimeSpan GatherInterval = TimeSpan.FromSeconds(5);
+
+		private DateTime m_NextGather;
+		private DateTime m_DefectsWritten;
+
+		/// <summary>Takes the reports of the Players into defects, tells the agent of new and returning ones, and the views of any change.</summary>
+		public QAChanges GatherDefects()
+		{
+			QAChanges changes;
+			try
+			{
+				changes = QAStore.Gather(Workspace());
+			}
+			catch (Exception exception) when (exception is IOException || exception is System.Text.Json.JsonException)
+			{
+				Console.Error.WriteLine("Defects: " + exception.Message);
+				return new QAChanges();
+			}
+
+			foreach (var defect in changes.Created)
+				Relay.Defect("found", defect);
+			foreach (var defect in changes.Recurred)
+				Relay.Defect("recurred", defect);
+			// ws qa set changes the file too, outside the dashboard.
+			var path = Path.Combine(QAStore.Folder(Workspace()), "defects.json");
+			var written = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : default;
+			if (changes.Any || written != m_DefectsWritten)
+			{
+				m_DefectsWritten = written;
+				Publish("qa", new JsonObject());
+			}
+
+			return changes;
+		}
+
 		/// <summary>What the Players sent over OTLP.</summary>
 		public Perf Perf { get; } = new Perf();
 
@@ -64,6 +100,11 @@ namespace Dexc.Autopilot.Dashboard
 			{
 				LookAll();
 				Relay.Tick(DateTime.UtcNow);
+				if (DateTime.UtcNow >= m_NextGather)
+				{
+					m_NextGather = DateTime.UtcNow + GatherInterval;
+					GatherDefects();
+				}
 				try
 				{
 					await Task.Delay(interval, cancellation);

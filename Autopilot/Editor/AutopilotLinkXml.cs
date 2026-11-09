@@ -43,6 +43,7 @@ namespace Dexc.Autopilot
 		};
 
 		const string TelemetryAssembly = "Dexc.Telemetry";
+		const string QAAssembly = "Dexc.QA";
 
 		public int callbackOrder => 0;
 
@@ -78,6 +79,9 @@ namespace Dexc.Autopilot
 			// The workspace starts telemetry, captures and seals through eval, which the game's code need not call.
 			if (IsInBuild(TelemetryAssembly))
 				Keep(content, TelemetryAssembly);
+			// Bots check and agents report through Dexc QA, which the game's code need not call either.
+			if (IsInBuild(QAAssembly))
+				Keep(content, QAAssembly);
 
 			content.Append("  <assembly fullname=\"mscorlib\">\n");
 			foreach (var type in s_ClassLibrary)

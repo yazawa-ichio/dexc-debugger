@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Autopilot Defects</title>
+	<link rel="stylesheet" href="/style.css">
+	<style>
+		.layout { display: grid; gap: 12px; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.4fr); }
+		@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+		#list tr { cursor: pointer; }
+		#list tr.chosen td { background: var(--accent-soft); }
+		.shot { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; }
+		.report { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
+		.fields { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+	</style>
+</head>
+<body>
+<main>
+	<div class="row">
+		<h1>Defects</h1>
+		<select id="state">
+			<option value="">all</option>
+			<option value="open" selected>open</option>
+			<option value="fixing">fixing</option>
+			<option value="fixed">fixed</option>
+			<option value="wontfix">wontfix</option>
+		</select>
+		<span class="muted">Gathered from the Players every few seconds. New and returning defects go to the agent.</span>
+	</div>
+	<div class="layout">
+		<section class="card"><div class="scroll"><table id="list" class="table"></table></div></section>
+		<section class="card" id="detail"><p class="muted">Choose a defect.</p></section>
+	</div>
+</main>
+<script src="/dexc.js"></script>
+<script>
+	"use strict";
+	const { element } = Dexc;
+	let defects = [];
+	let chosen = new URLSearchParams(location.search).get("id");
+
+	async function refresh() {
+		const state = document.getElementById("state").value;
+		defects = await Dexc.get("/api/qa/defects" + (state ? "?state=" + state : ""));
+		defects.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+		document.getElementById("list").replaceChildren(
+			element("thead", {}, element("tr", {}, ["id", "state", "count", "builds", "title"].map(name => element("th", {}, name)))),
+			element("tbody", {}, defects.map(defect => element("tr", { class: defect.id === chosen ? "chosen" : null, onclick: () => choose(defect.id) },
+				element("td", {}, defect.id), element("td", {}, defect.state), element("td", {}, String(defect.count)),
+				element("td", {}, Object.keys(defect.builds || {}).join(", ")), element("td", {}, defect.title || defect.signature)))));
+		if (chosen) show(defects.find(defect => defect.id === chosen));
+	}
+
+	function choose(id) {
+		chosen = id;
+		history.replaceState(null, "", "?id=" + encodeURIComponent(id));
+		refresh();
+	}
+
+	async function setState(defect, state) {
+		const note = prompt("Note for " + defect.id + " (" + defect.state + " -> " + state + ")", "") ?? null;
+		if (note === null) return;
+		await Dexc.post("/api/qa/state", { id: defect.id, state, note });
+		refresh();
+	}
+
+	async function show(defect) {
+		const detail = document.getElementById("detail");
+		if (!defect) {
+			detail.replaceChildren(element("p", { class: "muted" }, "Not in this list."));
+			return;
+		}
+		const occurrences = Object.entries(defect.builds || {}).map(([build, occurrence]) =>
+			element("tr", {}, element("td", {}, build), element("td", {}, String(Object.values(occurrence.runs || {}).reduce((a, b) => a + b, 0))),
+				element("td", {}, Object.keys(occurrence.runs || {}).length + " runs"), element("td", {}, new Date(occurrence.last).toLocaleString())));
+		const reports = element("div", {});
+		detail.replaceChildren(
+			element("div", { class: "row" }, element("h2", {}, defect.id + " " + (defect.title || "")), element("span", { class: "badge" }, defect.state)),
+			element("div", { class: "muted fields" }, defect.signature),
+			element("div", { class: "row" }, ["open", "fixing", "fixed", "wontfix"].filter(state => state !== defect.state)
+				.map(state => element("button", { onclick: () => setState(defect, state) }, state))),
+			element("table", { class: "table" }, element("thead", {}, element("tr", {}, ["build", "count", "runs", "last"].map(name => element("th", {}, name)))), element("tbody", {}, occurrences)),
+			element("pre", { class: "log" }, (defect.notes || []).map(note => new Date(note.time).toLocaleString() + "  " + note.by + "  " + note.text).join("\n")),
+			reports);
+		for (const name of (defect.reports || []).slice(-3).reverse()) {
+			const [build, id] = name.split("/");
+			const report = await Dexc.get("/api/qa/report?build=" + encodeURIComponent(build) + "&id=" + encodeURIComponent(id));
+			const fields = Object.entries(report.fields || {}).concat(Object.entries(report.annotations || {}))
+				.map(([key, value]) => key + ": " + value).join("\n");
+			const where = report.location ? report.location.map + " " + [report.location.x, report.location.y, report.location.z].join(", ") : "";
+			reports.append(element("div", { class: "report" },
+				element("div", { class: "row" }, element("strong", {}, build + " " + id), element("span", { class: "muted" }, new Date(report.time).toLocaleString() + "  frame " + report.frame + "  #" + report.occurrence)),
+				element("div", { class: "fields" }, [report.detail, fields, where, Object.entries(report.resource || {}).map(([key, value]) => key + "=" + value).join("  ")].filter(Boolean).join("\n")),
+				report.screenshot && report.screenshot !== "pending"
+					? element("img", { class: "shot", alt: "screenshot", src: "/api/qa/file?build=" + encodeURIComponent(build) + "&id=" + encodeURIComponent(id) + "&name=" + encodeURIComponent(report.screenshot) })
+					: element("p", { class: "muted" }, "No screenshot."),
+				element("pre", { class: "log" }, (report.logs || []).slice(-15).map(line => line.type + "  " + line.message).join("\n"))));
+		}
+	}
+
+	document.getElementById("state").addEventListener("change", refresh);
+	Dexc.nav();
+	Dexc.on("qa", refresh);
+	refresh();
+</script>
+</body>
+</html>

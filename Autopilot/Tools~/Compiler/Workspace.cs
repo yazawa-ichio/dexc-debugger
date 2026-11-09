@@ -253,6 +253,9 @@ namespace Dexc.Autopilot.Compiler
 		private string ProcessFile => Path.Combine(State, "player.pid");
 		public string Port => File.Exists(PortFile) ? File.ReadAllText(PortFile).Trim() : null;
 
+		/// <summary>The folder the Player writes its defects in, its own as the telemetry is.</summary>
+		public string QAFolder => Path.Combine(State, "qa");
+
 		/// <summary>The folder the Player writes its telemetry in, its own even when builds share a product name.</summary>
 		public string TelemetryFolder => Path.Combine(State, "telemetry");
 
@@ -286,6 +289,9 @@ namespace Dexc.Autopilot.Compiler
 			// Read by Dexc Telemetry when the game or an eval starts it. A Player without it ignores them.
 			foreach (var argument in TelemetryArguments(seed))
 				start.ArgumentList.Add(argument);
+			// Dexc QA starts on its own with it, so that defects are found from the first frame.
+			start.ArgumentList.Add("-dexc-qa-directory");
+			start.ArgumentList.Add(QAFolder);
 			using (var process = Process.Start(start))
 				File.WriteAllText(ProcessFile, process.Id.ToString());
 			var clock = Stopwatch.StartNew();
@@ -405,6 +411,7 @@ namespace Dexc.Autopilot.Compiler
 	///   ws bot [--load] [--vm ...]                                 [--build a,b]
 	///   ws eval "snippet" [--vm ...] [--keep]                      [--build a,b]
 	///   ws agent wait [--timeout 90] | answer build id answer | say text
+	///   ws qa pull | list [--state open] | show id | set id state [--note text]
 	/// Every build answers on a line of its own, whatever the others did.
 	/// </summary>
 	internal static class WorkspaceCommand
@@ -447,6 +454,8 @@ namespace Dexc.Autopilot.Compiler
 						});
 					case "telemetry":
 						return Telemetry(workspace, players, arguments, options, compilerPort);
+					case "qa":
+						return QA(workspace, arguments, options);
 					case "stop":
 						return ForEach(players, player =>
 						{
@@ -462,7 +471,7 @@ namespace Dexc.Autopilot.Compiler
 					case "watch":
 						return Watch(workspace, players, options, compilerPort);
 					default:
-						Console.Error.WriteLine("usage: ws init | add | remove | refs | start | stop | status | bot | eval | telemetry | watch | agent");
+						Console.Error.WriteLine("usage: ws init | add | remove | refs | start | stop | status | bot | eval | telemetry | qa | watch | agent");
 						return 2;
 				}
 			}
@@ -472,6 +481,52 @@ namespace Dexc.Autopilot.Compiler
 				return 1;
 			}
 		}
+
+		/// <summary>
+		/// The defects the Players found, through Dexc QA. pull takes the whole reports into QA/reports and brings the
+		/// defects in QA/defects.json up to date; list, show and set read and change them. No eval: the Players write their
+		/// reports and counts to their own folders, which ws start gave them.
+		/// </summary>
+		private static int QA(Workspace workspace, string[] arguments, Program.Options options)
+		{
+			var verb = arguments.Length > 2 ? arguments[2] : string.Empty;
+			switch (verb)
+			{
+				case "pull":
+					var changes = QAStore.Gather(workspace);
+					Console.WriteLine("took " + changes.Reports + " reports into " + Path.Combine(QAStore.Folder(workspace), "reports"));
+					foreach (var defect in changes.Created)
+						Console.WriteLine("new    " + Line(defect));
+					foreach (var defect in changes.Recurred)
+						Console.WriteLine("again  " + Line(defect));
+					return 0;
+				case "list":
+					var state = options.Value("state", null);
+					foreach (var defect in QAStore.Read(workspace).Defects.Where(defect => state == null || defect.State == state))
+						Console.WriteLine(Line(defect));
+					return 0;
+				case "show":
+					if (arguments.Length < 4)
+						throw new InvalidOperationException("ws qa show <id>");
+					var found = QAStore.Read(workspace).Defects.FirstOrDefault(defect => string.Equals(defect.Id, arguments[3], StringComparison.OrdinalIgnoreCase))
+						?? throw new InvalidOperationException("No such defect: " + arguments[3]);
+					var json = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+					var shown = JsonSerializer.SerializeToNode(found, json).AsObject();
+					shown["reportFolders"] = new JsonArray(found.Reports.Select(report => (JsonNode)Path.Combine(QAStore.Folder(workspace), "reports", report.Replace('/', Path.DirectorySeparatorChar))).ToArray());
+					Console.WriteLine(shown.ToJsonString(json));
+					return 0;
+				case "set":
+					if (arguments.Length < 5)
+						throw new InvalidOperationException("ws qa set <id> <open|fixing|fixed|wontfix> [--note text]");
+					QAStore.SetState(workspace, arguments[3], arguments[4], "agent", options.Value("note", null));
+					return 0;
+				default:
+					throw new InvalidOperationException("ws qa pull | list [--state open] | show <id> | set <id> <state> [--note text]");
+			}
+		}
+
+		private static string Line(QADefect defect) =>
+			defect.Id + "  " + defect.State.PadRight(7) + "  " + defect.Count.ToString().PadLeft(5) + "x  " + string.Join(",", defect.Builds.Keys).PadRight(12) + "  " + defect.Title + "  [" + defect.Signature + "]";
 
 		/// <summary>Seconds between the metrics a Player writes and sends with ws telemetry start --upload.</summary>
 		private const int UploadSeconds = 5;
