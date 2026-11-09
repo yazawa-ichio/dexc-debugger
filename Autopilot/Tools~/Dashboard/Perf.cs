@@ -22,6 +22,9 @@ namespace Dexc.Autopilot.Dashboard
 		public const int PointCapacity = 2000;
 		public const int RecordCapacity = 500;
 
+		/// <summary>The positions kept per build: one a second is more than an hour of play.</summary>
+		public const int PositionCapacity = 5000;
+
 		/// <summary>Over the frame of a 60 Hz display, and the frozen frame of Android vitals and Firebase.</summary>
 		public const double SlowFrameMilliseconds = 16.7;
 		public const double FrozenFrameMilliseconds = 700;
@@ -44,6 +47,7 @@ namespace Dexc.Autopilot.Dashboard
 			public readonly Queue<JsonObject> Logs = new Queue<JsonObject>();
 			public readonly Queue<JsonObject> Loads = new Queue<JsonObject>();
 			public readonly Queue<JsonObject> Hitches = new Queue<JsonObject>();
+			public readonly Queue<JsonObject> Positions = new Queue<JsonObject>();
 		}
 
 		private readonly object m_Gate = new object();
@@ -114,6 +118,15 @@ namespace Dexc.Autopilot.Dashboard
 							["body"] = record.Body?.StringValue,
 							["attributes"] = Attributes(record.Attributes),
 						};
+						// Positions come every second or so: kept apart, they do not push the other logs out.
+						if (record.EventName == "dexc.position")
+						{
+							build.Positions.Enqueue(entry);
+							while (build.Positions.Count > PositionCapacity)
+								build.Positions.Dequeue();
+							continue;
+						}
+
 						Keep(build.Logs, entry);
 						if (record.EventName == "dexc.hitch")
 							Keep(build.Hitches, (JsonObject)entry.DeepClone());
@@ -222,6 +235,8 @@ namespace Dexc.Autopilot.Dashboard
 		}
 
 		public JsonArray Hitches(string build) => Records(build, perf => perf.Hitches);
+
+		public JsonArray Positions(string build) => Records(build, perf => perf.Positions);
 
 		public JsonArray Spans(string build) => Records(build, perf => perf.Spans);
 

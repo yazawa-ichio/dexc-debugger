@@ -317,6 +317,7 @@ dotnet run --project <repo>/Autopilot/Tools~/Dashboard -c Release
 | --- | --- |
 | Builds | ビルドごとの状態、`log`、`failure`。答えを待つ質問、エージェントへの指示、経緯 |
 | Machines | マシンの状態と遷移の図。今の状態を塗り、割り込まれたマシンが戻る状態を枠で示します |
+| Map | `Dashboard/maps/<地図>.json`に書いた地図の上に、プレイヤーの行った所の密度、ヒッチ、不具合の場所を重ねます |
 | Defects | Dexc QAが見つけた不具合。ビルドごとの回数、経緯、スクリーンショットとログ。状態を変えられます |
 | Performance | 分布の表（ビルドと注釈ごと。最初のビルドよりp95が1割以上悪い行に印）、ロードの表、ヒッチの一覧、指標の線グラフ。`ws telemetry start --upload`で送らせたものです |
 

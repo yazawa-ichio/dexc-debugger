@@ -138,6 +138,12 @@ namespace Dexc.Autopilot.Dashboard
 				Hub.Publish("qa", new JsonObject());
 				return Results.NoContent();
 			});
+			app.MapGet("/api/maps", () => Json(new JsonArray(Maps.Names(Hub.Directory).Select(name => (JsonNode)name).ToArray())));
+			app.MapGet("/api/maps/points", (string map) =>
+			{
+				var points = string.IsNullOrEmpty(map) ? null : Maps.Points(Hub, map);
+				return points == null ? Results.NotFound() : Json(points);
+			});
 			app.MapGet("/api/decisions", () => Json(Hub.Relay.Decisions()));
 			app.MapGet("/api/journal", () => Json(Hub.Relay.Journal()));
 			app.MapPost("/api/decisions/answer", async (HttpContext context) =>

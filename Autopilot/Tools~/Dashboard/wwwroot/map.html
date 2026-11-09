@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Autopilot Map</title>
+	<link rel="stylesheet" href="/style.css">
+	<style>
+		#view { width: 100%; max-width: 900px; aspect-ratio: 1; display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+		.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+		.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+	</style>
+</head>
+<body>
+<main>
+	<div class="row">
+		<h1>Map</h1>
+		<select id="map"></select>
+		<select id="build"><option value="">all builds</option></select>
+		<label><input type="checkbox" id="show-positions" checked> where the player went</label>
+		<label><input type="checkbox" id="show-hitches" checked> hitches</label>
+		<label><input type="checkbox" id="show-defects" checked> defects</label>
+	</div>
+	<p id="empty" class="muted" hidden>No map yet. Write Dashboard/maps/&lt;map&gt;.json in the workspace: the image, the world axes across and down it, and the world coordinates at its edges.</p>
+	<canvas id="view"></canvas>
+	<div class="legend">
+		<span><i style="background:#2f6fdb"></i>where the player went, darker where more</span>
+		<span><i style="background:#d14b4b"></i>hitch</span>
+		<span><i style="background:#d9822b"></i>defect</span>
+	</div>
+	<div class="scroll"><table id="defects" class="table"></table></div>
+</main>
+<script src="/dexc.js"></script>
+<script>
+	"use strict";
+	const { element } = Dexc;
+	const canvas = document.getElementById("view");
+	let data = null;
+	let image = null;
+
+	async function maps() {
+		const names = await Dexc.get("/api/maps");
+		const picker = document.getElementById("map");
+		picker.replaceChildren(...names.map(name => element("option", { value: name }, name)));
+		document.getElementById("empty").hidden = names.length > 0;
+		const chosen = new URLSearchParams(location.search).get("map");
+		if (chosen && names.includes(chosen)) picker.value = chosen;
+		if (names.length) await load();
+	}
+
+	async function load() {
+		const map = document.getElementById("map").value;
+		data = await Dexc.get("/api/maps/points?map=" + encodeURIComponent(map));
+		const builds = document.getElementById("build");
+		for (const build of new Set([...data.positions, ...data.hitches, ...data.defects].map(point => point.build))) {
+			if (![...builds.options].some(option => option.value === build)) builds.append(element("option", { value: build }, build));
+		}
+		if (data.image && (!image || image.dataset.source !== data.image)) {
+			image = new Image();
+			image.dataset.source = data.image;
+			image.onload = draw;
+			image.src = data.image;
+		}
+		draw();
+	}
+
+	function draw() {
+		if (!data) return;
+		const ratio = window.devicePixelRatio || 1;
+		const size = canvas.clientWidth;
+		canvas.width = size * ratio;
+		canvas.height = size * ratio;
+		const context = canvas.getContext("2d");
+		context.scale(ratio, ratio);
+		const style = getComputedStyle(document.body);
+		const build = document.getElementById("build").value;
+		const shown = point => !build || point.build === build;
+		const inside = point => point.u >= 0 && point.u <= 1 && point.v >= 0 && point.v <= 1;
+		if (image && image.complete && image.naturalWidth) {
+			context.drawImage(image, 0, 0, size, size);
+		} else {
+			context.strokeStyle = style.getPropertyValue("--border");
+			for (let step = 0; step <= 10; step++) {
+				context.beginPath();
+				context.moveTo(step * size / 10, 0); context.lineTo(step * size / 10, size);
+				context.moveTo(0, step * size / 10); context.lineTo(size, step * size / 10);
+				context.stroke();
+			}
+		}
+		if (document.getElementById("show-positions").checked) {
+			const cells = 48, counts = new Map();
+			let most = 1;
+			for (const point of data.positions.filter(shown).filter(inside)) {
+				const key = Math.min(cells - 1, Math.floor(point.u * cells)) + "," + Math.min(cells - 1, Math.floor(point.v * cells));
+				const count = (counts.get(key) || 0) + 1;
+				counts.set(key, count);
+				most = Math.max(most, count);
+			}
+			for (const [key, count] of counts) {
+				const [x, y] = key.split(",").map(Number);
+				context.fillStyle = "rgba(47, 111, 219, " + (0.15 + 0.6 * Math.log(1 + count) / Math.log(1 + most)) + ")";
+				context.fillRect(x * size / cells, y * size / cells, size / cells, size / cells);
+			}
+		}
+		const dot = (point, color, radius) => {
+			context.fillStyle = color;
+			context.beginPath();
+			context.arc(point.u * size, point.v * size, radius, 0, Math.PI * 2);
+			context.fill();
+		};
+		if (document.getElementById("show-hitches").checked) {
+			for (const point of data.hitches.filter(shown).filter(inside)) dot(point, "rgba(209, 75, 75, 0.8)", 4);
+		}
+		const defects = data.defects.filter(shown);
+		if (document.getElementById("show-defects").checked) {
+			for (const point of defects.filter(inside)) dot(point, "#d9822b", 6);
+		}
+		document.getElementById("defects").replaceChildren(
+			element("thead", {}, element("tr", {}, ["defect", "state", "build", "title"].map(name => element("th", {}, name)))),
+			element("tbody", {}, defects.map(point => element("tr", {},
+				element("td", {}, element("a", { href: "/qa.html?id=" + encodeURIComponent(point.id) }, point.id)),
+				element("td", {}, point.state), element("td", {}, point.build), element("td", {}, point.title || "")))));
+	}
+
+	for (const id of ["build", "show-positions", "show-hitches", "show-defects"]) document.getElementById(id).addEventListener("change", draw);
+	document.getElementById("map").addEventListener("change", load);
+	window.addEventListener("resize", draw);
+	Dexc.nav();
+	Dexc.on("qa", load);
+	let scheduled = false;
+	Dexc.on("perf", () => {
+		if (scheduled) return;
+		scheduled = true;
+		setTimeout(() => { scheduled = false; if (data) load(); }, 5000);
+	});
+	maps();
+</script>
+</body>
+</html>

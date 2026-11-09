@@ -261,6 +261,14 @@ Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルド
 - 「Defects」のページは、状態で絞った一覧と、ビルドごとの回数、経緯、直近の詳しい報告（スクリーンショット、詳細、注釈、場所、resource、ログ）を見せる。人は状態を変えられる
 - `GET /api/qa/defects?state=`、`/api/qa/report?build=&id=`、`/api/qa/file?build=&id=&name=`、`POST /api/qa/state`。ファイルの名前は単なる名前だけを受け、報告のフォルダーの外は配らない
 
+### 場所の地図
+
+- 地図の置き方は、プロジェクトがワークスペースの`Dashboard/maps/<地図>.json`に書く。地図の名前は、ゲームの`ITelemetryLocation`が返す名前と同じにする。項目は、画像（同じフォルダーからの名前、無ければ格子を描く）、画像の横と縦に当てるワールドの軸（`horizontal`、`vertical`、既定は`x`と`z`）、画像の端のワールド座標（`left`、`right`、`top`、`bottom`）である
+- ワールド座標から画像の上の位置（0から1）への変換はダッシュボードで行い、画面はそれを描くだけにする
+- 重ねるのは、位置のイベント（`dexc.position`）の密度、ヒッチ、場所を持つ不具合の報告である。ビルドで絞れる。判断点は場所を記録しないので載せない
+- 位置のイベントは、直近のlogsとは別に、ビルドごとに5000件まで持つ。1秒ごとの位置で、ほかのlogsを押し出さないためである
+- `GET /api/maps`、`/api/maps/points?map=`
+
 ### 性能の受け取り
 
 - `POST /v1/metrics|traces|logs`でOTLP/HTTPのprotobufを受ける。gzipにも対応する。`.proto`は`Telemetry/Tools~/proto`のものを使う
