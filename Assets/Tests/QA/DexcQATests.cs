@@ -137,6 +137,17 @@ namespace DexcDebugger.Tests.QA
 		}
 
 		[Test]
+		public void AnExceptionOfABotIsTakenByItsMessageNotByTheInterpreter()
+		{
+			const string Interpreted = "System.Reflection.MethodBase:Invoke (object,object[])\nILRuntime.CLR.Method.CLRMethod:Invoke ()\nDexc.Autopilot.AutopilotServer:Pump ()\nGame.AutopilotHost:Update ()\n";
+			const string GameUnderBot = "Game.Door.Open () (at Assets/Door.cs:4)\nSystem.Reflection.MethodBase:Invoke (object,object[])\nGame.AutopilotHost:Update ()\n";
+
+			Assert.That(QARoot.SignatureOf("InvalidOperationException: door 12 jammed", "UnityEngine.Debug:LogException (System.Exception)\n" + Interpreted, true),
+				Is.EqualTo("exception:InvalidOperationException:InvalidOperationException: door # jammed"));
+			Assert.That(QARoot.SignatureOf("NullReferenceException: x", GameUnderBot, true), Is.EqualTo("exception:NullReferenceException@Game.Door.Open ()"));
+		}
+
+		[Test]
 		public void ContributorsAddToTheReportAndSinksHearOfItWritten()
 		{
 			var recorder = new Recorder();

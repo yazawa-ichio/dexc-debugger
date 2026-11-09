@@ -469,9 +469,25 @@ namespace Dexc.QA
 			File.Delete(path + ".tmp");
 		}
 
+		/// <summary>The frames of the logging, which come before the place of the defect.</summary>
+		static bool IsLogging(string frame)
+		{
+			return frame.StartsWith("UnityEngine.Debug", StringComparison.Ordinal) || frame.StartsWith("UnityEngine.Logger", StringComparison.Ordinal);
+		}
+
+		/// <summary>
+		/// The frames of the interpreters of bots and evals. The code they run has no frame of its own; what comes after them
+		/// is the host that called the bot, the same for every defect of a bot.
+		/// </summary>
+		static bool IsInterpreter(string frame)
+		{
+			return frame.StartsWith("System.Reflection.", StringComparison.Ordinal) || frame.StartsWith("ILRuntime.", StringComparison.Ordinal) || frame.StartsWith("Dexc.Autopilot.", StringComparison.Ordinal);
+		}
+
 		/// <summary>
 		/// What the same defect has in common from one build to the next: the type of the exception, or the message of the
-		/// error with its numbers taken out, and the first frames of the stack without their lines and addresses.
+		/// error with its numbers taken out, and the first frames of the stack without their lines and addresses. An
+		/// exception with no frame of its own, as one thrown in a bot, adds its message instead.
 		/// </summary>
 		internal static string SignatureOf(string message, string stack, bool exception)
 		{
@@ -490,9 +506,13 @@ namespace Dexc.QA
 			foreach (var raw in (stack ?? string.Empty).Split('\n'))
 			{
 				var line = raw.Trim();
-				if (line.Length == 0 || line.StartsWith("UnityEngine.Debug", StringComparison.Ordinal) || line.StartsWith("UnityEngine.Logger", StringComparison.Ordinal))
+				if (line.Length == 0 || IsLogging(line))
 				{
 					continue;
+				}
+				if (IsInterpreter(line))
+				{
+					break;
 				}
 				var at = line.IndexOf(" (at ", StringComparison.Ordinal);
 				if (at >= 0)
@@ -506,7 +526,11 @@ namespace Dexc.QA
 					break;
 				}
 			}
-			return frames.Count == 0 ? head : head + "@" + string.Join(";", frames);
+			if (frames.Count > 0)
+			{
+				return head + "@" + string.Join(";", frames);
+			}
+			return exception ? head + ":" + Regex.Replace(first.Length > 120 ? first.Substring(0, 120) : first, "[0-9]+", "#") : head;
 		}
 
 		static string FirstLine(string text)
