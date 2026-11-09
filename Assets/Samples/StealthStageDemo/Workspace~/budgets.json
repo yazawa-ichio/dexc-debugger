@@ -1,0 +1,19 @@
+[
+  {
+    "metric": "unity.frame.time",
+    "stat": "p95",
+    "max": 33.4
+  },
+  {
+    "metric": "unity.frame.time",
+    "stat": "frozen",
+    "max": 0
+  },
+  {
+    "metric": "dexc.load.duration",
+    "stat": "p95",
+    "max": 500,
+    "where": { "dexc.load.kind": "level" },
+    "minimum": 3
+  }
+]

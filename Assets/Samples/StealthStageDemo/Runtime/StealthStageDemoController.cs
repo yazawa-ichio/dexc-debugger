@@ -114,6 +114,12 @@ namespace DexcDebugger.Samples.StealthStageDemo
 
 		public static StealthStageDemoController Instance { get; private set; }
 		public int CurrentStageNumber => m_CurrentStageIndex + 1;
+
+		/// <summary>A stage is about to be built, by its number: what measures the game hooks in here.</summary>
+		public event Action<int> StageBuilding;
+
+		/// <summary>A stage was built and runs from the next frame.</summary>
+		public event Action<int> StageBuilt;
 		public int StageCount => s_Stages.Length;
 		public string Objective => s_Stages[m_CurrentStageIndex].Objective;
 
@@ -327,6 +333,7 @@ namespace DexcDebugger.Samples.StealthStageDemo
 
 		void BuildStage(int stageIndex)
 		{
+			StageBuilding?.Invoke(Mathf.Clamp(stageIndex, 0, s_Stages.Length - 1) + 1);
 			m_CurrentStageIndex = Mathf.Clamp(stageIndex, 0, s_Stages.Length - 1);
 			State = StealthStageState.Running;
 			m_StateTimer = 0f;
@@ -371,6 +378,7 @@ namespace DexcDebugger.Samples.StealthStageDemo
 			var guardCount = Mathf.Min(layout.GuardRoutes.Length, StealthDemoConfig.GuardCount);
 			for (var index = 0; index < guardCount; index++)
 				CreateGuard(index, layout.GuardRoutes[index]);
+			StageBuilt?.Invoke(CurrentStageNumber);
 		}
 
 		void CreatePlayer(Vector3 position)

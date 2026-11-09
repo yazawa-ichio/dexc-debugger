@@ -1,4 +1,5 @@
 using Dexc.Autopilot;
+using Dexc.QA;
 using DexcDebugger.Samples.StealthStageDemo;
 using DexcDebugger.Samples.StealthStageDemo.Autopilot;
 using UnityEngine;
@@ -46,7 +47,28 @@ namespace StealthBot
 			{
 				var exit = context.Game.ExitPosition;
 				MoveTo(context, exit.x, exit.z);
+				CheckExitClears(context);
 			});
+		}
+
+		/// <summary>
+		/// A check of what the bot sees: standing on the exit of a running stage clears it within a moment. When it does not,
+		/// Dexc QA gets a defect, with the stage and the place from the game.
+		/// </summary>
+		static void CheckExitClears(StealthContext context)
+		{
+			var onExit = context.Game.State == StealthStageState.Running && context.Game.DistanceToExit <= StealthStageDemoController.ExitRadius;
+			if (!onExit)
+			{
+				context.State.Remove("onExitSince");
+				return;
+			}
+			if (!context.State.Has("onExitSince"))
+			{
+				context.State.SetFloat("onExitSince", context.Time);
+				return;
+			}
+			DexcQA.Check(context.Time - context.State.GetFloat("onExitSince") < 3f, "stealth.exit-did-not-clear", "Stood on the exit for 3 s and the stage did not clear");
 		}
 
 		static bool IsAt(StealthContext context, float x, float z)
