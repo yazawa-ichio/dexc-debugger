@@ -127,8 +127,42 @@ namespace Dexc.Autopilot.Compiler
 		/// <summary>What the dashboard keeps: where it listens, and the journal of the questions and the instructions.</summary>
 		public string Dashboard => Path.Combine(Directory, ".state", ".dashboard");
 
-		/// <summary>Where a running dashboard says how to reach it, as {"url", "token"}.</summary>
+		/// <summary>Where a running dashboard says how to reach it, as {"url", "token", "pid"}.</summary>
 		public string DashboardEndpoint => Path.Combine(Dashboard, "endpoint.json");
+
+		/// <summary>
+		/// How to reach the running dashboard. A dashboard that was killed leaves its file behind: the process it names is
+		/// gone, so the file is taken away and the dashboard said not to run.
+		/// </summary>
+		/// <exception cref="InvalidOperationException">No dashboard runs for this workspace.</exception>
+		public JsonNode RunningDashboard()
+		{
+			const string NotRunning = "The dashboard is not running. Start Dexc.Autopilot.Dashboard in the workspace.";
+			if (!System.IO.File.Exists(DashboardEndpoint))
+				throw new InvalidOperationException(NotRunning);
+			var endpoint = JsonNode.Parse(System.IO.File.ReadAllText(DashboardEndpoint));
+			var pid = endpoint?["pid"]?.GetValue<int>() ?? 0;
+			if (!IsAlive(pid))
+			{
+				System.IO.File.Delete(DashboardEndpoint);
+				throw new InvalidOperationException(NotRunning + " The last one ended without cleaning up.");
+			}
+
+			return endpoint;
+		}
+
+		private static bool IsAlive(int pid)
+		{
+			try
+			{
+				using var process = Process.GetProcessById(pid);
+				return !process.HasExited;
+			}
+			catch (ArgumentException)
+			{
+				return false;
+			}
+		}
 
 		/// <summary>Where the telemetry files of a build are gathered: Telemetry/name.</summary>
 		public string Telemetry(string build) => Path.Combine(Directory, "Telemetry", build);
@@ -619,9 +653,7 @@ namespace Dexc.Autopilot.Compiler
 		/// </summary>
 		private static int Agent(Workspace workspace, string[] arguments, Program.Options options)
 		{
-			if (!File.Exists(workspace.DashboardEndpoint))
-				throw new InvalidOperationException("The dashboard is not running. Start Dexc.Autopilot.Dashboard in the workspace.");
-			var endpoint = JsonNode.Parse(File.ReadAllText(workspace.DashboardEndpoint));
+			var endpoint = workspace.RunningDashboard();
 			var verb = arguments.Length > 2 ? arguments[2] : string.Empty;
 			var seconds = double.Parse(options.Value("timeout", "90"), System.Globalization.CultureInfo.InvariantCulture);
 			using var client = new System.Net.Http.HttpClient { BaseAddress = new Uri(endpoint["url"].GetValue<string>()), Timeout = TimeSpan.FromSeconds(seconds + 30) };
@@ -808,9 +840,7 @@ namespace Dexc.Autopilot.Compiler
 					if (options.Has("upload"))
 					{
 						// To the dashboard, every few seconds, for it to draw as the Players go. The logs too: they carry the hitches.
-						if (!File.Exists(workspace.DashboardEndpoint))
-							throw new InvalidOperationException("--upload sends to the dashboard, which is not running.");
-						var url = JsonNode.Parse(File.ReadAllText(workspace.DashboardEndpoint))["url"].GetValue<string>().Replace("\"", string.Empty);
+						var url = workspace.RunningDashboard()["url"].GetValue<string>().Replace("\"", string.Empty);
 						start = "if (!" + Api + ".IsRunning) " + Api + ".Start(new Dexc.Telemetry.TelemetryOptions { ExportIntervalSeconds = " + UploadSeconds + ", PositionSeconds = 1 }); ";
 						upload = "if (!" + Api + ".IsUploading) " + Api + ".StartUpload(new Dexc.Telemetry.TelemetryUploadOptions { Endpoint = \"" + url + "\", IntervalSeconds = " + UploadSeconds + ", Logs = true }); ";
 					}

@@ -33,6 +33,9 @@ namespace Dexc.Autopilot.Dashboard
 				var interval = TimeSpan.FromSeconds(double.Parse(Option(arguments, "interval", "1"), CultureInfo.InvariantCulture));
 				var humanTimeout = TimeSpan.FromSeconds(double.Parse(Option(arguments, "human-timeout", "60"), CultureInfo.InvariantCulture));
 				var workspace = Workspace.Find();
+				if (IsRunning(workspace))
+					throw new InvalidOperationException("A dashboard already runs for this workspace.");
+
 				var hub = new Hub(workspace.Directory, humanTimeout);
 				var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 				var forward = Option(arguments, "forward", null);
@@ -40,7 +43,9 @@ namespace Dexc.Autopilot.Dashboard
 				await server.Start();
 				var endpoint = workspace.DashboardEndpoint;
 				Directory.CreateDirectory(Path.GetDirectoryName(endpoint));
-				File.WriteAllText(endpoint, new JsonObject { ["url"] = server.Url, ["token"] = token }.ToJsonString());
+				File.WriteAllText(endpoint, new JsonObject { ["url"] = server.Url, ["token"] = token, ["pid"] = Environment.ProcessId }.ToJsonString());
+				// Closing the window ends the process without Ctrl+C; a kill cannot be heard, which the pid covers.
+				AppDomain.CurrentDomain.ProcessExit += (_, _) => File.Delete(endpoint);
 				Console.WriteLine("Dashboard of " + workspace.Directory);
 				Console.WriteLine(server.Url + "?token=" + token);
 				using var stop = new CancellationTokenSource();
@@ -57,6 +62,20 @@ namespace Dexc.Autopilot.Dashboard
 			{
 				Console.Error.WriteLine(exception.Message);
 				return 1;
+			}
+		}
+
+		/// <summary>Whether a dashboard runs for the workspace. A killed one left its file, which goes now.</summary>
+		private static bool IsRunning(Workspace workspace)
+		{
+			try
+			{
+				workspace.RunningDashboard();
+				return true;
+			}
+			catch (InvalidOperationException)
+			{
+				return false;
 			}
 		}
 
