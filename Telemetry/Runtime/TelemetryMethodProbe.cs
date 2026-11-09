@@ -4,44 +4,20 @@ namespace Dexc.Telemetry
 {
 	/// <summary>
 	/// What a measured method holds from its start to its end. The IL processing calls it; code does not. When nothing is
-	/// recorded the entry reads the root without making it and returns an empty probe.
+	/// recorded the entry reads the root without making it and returns an empty probe. Small on purpose, as every measured
+	/// call copies it: the owner and a token, by which the owner keeps the rest of the call.
 	/// </summary>
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	public readonly struct TelemetryMethodProbe
 	{
 		readonly TelemetryMethods m_Owner;
-		readonly int m_Index;
-		readonly int m_Generation;
-		readonly long m_StartTicks;
-		readonly long m_Allocation;
-		readonly string m_Scope;
-		readonly string m_Name;
-		readonly bool m_IsAsync;
+		readonly int m_Token;
 
-		/// <summary>A call recorded on the main thread, as the span in this slot.</summary>
-		internal TelemetryMethodProbe(TelemetryMethods owner, int index, int generation, bool isAsync, long allocation)
+		/// <param name="token">A call on the main thread: its slot and generation. On another thread: below zero.</param>
+		internal TelemetryMethodProbe(TelemetryMethods owner, int token)
 		{
 			m_Owner = owner;
-			m_Index = index;
-			m_Generation = generation;
-			m_StartTicks = 0;
-			m_Allocation = allocation;
-			m_Scope = null;
-			m_Name = null;
-			m_IsAsync = isAsync;
-		}
-
-		/// <summary>A call recorded on another thread, written when it ends.</summary>
-		internal TelemetryMethodProbe(TelemetryMethods owner, string scope, string name, long startTicks)
-		{
-			m_Owner = owner;
-			m_Index = -1;
-			m_Generation = 0;
-			m_StartTicks = startTicks;
-			m_Allocation = -1;
-			m_Scope = scope;
-			m_Name = name;
-			m_IsAsync = false;
+			m_Token = token;
 		}
 
 		/// <summary>A method with <see cref="TelemetryMethodAttribute"/>, recorded during a capture.</summary>
@@ -77,18 +53,7 @@ namespace Dexc.Telemetry
 
 		public void Exit()
 		{
-			if (m_Owner == null)
-			{
-				return;
-			}
-			if (m_Index >= 0)
-			{
-				m_Owner.Exit(m_Index, m_Generation, m_IsAsync, m_Allocation);
-			}
-			else
-			{
-				m_Owner.ExitOtherThread(m_Scope, m_Name, m_StartTicks);
-			}
+			m_Owner?.Exit(m_Token);
 		}
 	}
 }

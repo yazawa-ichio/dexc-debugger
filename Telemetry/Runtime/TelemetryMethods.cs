@@ -18,6 +18,30 @@ namespace Dexc.Telemetry
 		const int StackCapacity = 64;
 		const int QueueCapacity = 1024;
 		const long NoAllocation = -1;
+
+		/// <summary>The bits of a token for the slot of the span: the slots of the traces fit in them.</summary>
+		const int SlotBits = 8;
+		const int SlotMask = (1 << SlotBits) - 1;
+		const int GenerationMask = int.MaxValue >> SlotBits;
+
+		/// <summary>The calls open at once on other threads.</summary>
+		const int OtherCapacity = 256;
+
+		/// <summary>A call on another thread, from its start to its end.</summary>
+		struct OtherStart
+		{
+			internal string Scope;
+			internal string Name;
+			internal long StartTicks;
+		}
+
+		// What the end of a call on the main thread needs, by the slot of its span.
+		int[] m_OpenGeneration;
+		bool[] m_OpenAsync;
+		long[] m_OpenAllocation;
+		OtherStart[] m_OtherStarts;
+		int[] m_OtherFree;
+		int m_OtherFreeCount;
 		const long AllocationsByRecorder = -2;
 
 		sealed class Calls
@@ -249,7 +273,7 @@ namespace Dexc.Telemetry
 			if (isAsync)
 			{
 				// An async call ends elsewhere, where the allocation of this thread says nothing about it.
-				return new TelemetryMethodProbe(this, span.Index, span.Generation, true, NoAllocation);
+				return Open(span, true, NoAllocation);
 			}
 			m_Stack = m_Stack ?? new TelemetryContext[StackCapacity];
 			if (m_Depth < StackCapacity)
@@ -259,7 +283,47 @@ namespace Dexc.Telemetry
 			// Last, so that what this package does for the call is not counted as the allocation of the call.
 			var allocation = BeginAllocation(m_Depth);
 			m_Depth++;
-			return new TelemetryMethodProbe(this, span.Index, span.Generation, false, allocation);
+			return Open(span, false, allocation);
+		}
+
+		/// <summary>Keeps what the end of the call needs by the slot of its span, and gives the probe the slot and the generation.</summary>
+		TelemetryMethodProbe Open(TelemetrySpan span, bool isAsync, long allocation)
+		{
+			if (m_OpenGeneration == null)
+			{
+				m_OpenGeneration = new int[TelemetryTraces.SlotCapacity];
+				m_OpenAsync = new bool[TelemetryTraces.SlotCapacity];
+				m_OpenAllocation = new long[TelemetryTraces.SlotCapacity];
+			}
+			m_OpenGeneration[span.Index] = span.Generation;
+			m_OpenAsync[span.Index] = isAsync;
+			m_OpenAllocation[span.Index] = allocation;
+			return new TelemetryMethodProbe(this, ((span.Generation & GenerationMask) << SlotBits) | span.Index);
+		}
+
+		/// <summary>The end of a call, by the token of its probe.</summary>
+		internal void Exit(int token)
+		{
+			if (token >= 0)
+			{
+				var index = token & SlotMask;
+				var generation = m_OpenGeneration[index];
+				// The slot of an ended call may hold another by now.
+				if ((generation & GenerationMask) == token >> SlotBits)
+				{
+					Exit(index, generation, m_OpenAsync[index], m_OpenAllocation[index]);
+				}
+				return;
+			}
+			OtherStart start;
+			lock (m_Lock)
+			{
+				var slot = -token - 1;
+				start = m_OtherStarts[slot];
+				m_OtherStarts[slot] = default;
+				m_OtherFree[m_OtherFreeCount++] = slot;
+			}
+			ExitOtherThread(start.Scope, start.Name, start.StartTicks);
 		}
 
 		/// <summary>The end of a call. That of an async method may come on another thread, which the span takes care of.</summary>
@@ -371,7 +435,30 @@ namespace Dexc.Telemetry
 					return default;
 				}
 			}
-			return new TelemetryMethodProbe(this, scope, name, m_Metrics.Clock.UtcTicks);
+			var startTicks = m_Metrics.Clock.UtcTicks;
+			lock (m_Lock)
+			{
+				if (m_OtherStarts == null)
+				{
+					m_OtherStarts = new OtherStart[OtherCapacity];
+					m_OtherFree = new int[OtherCapacity];
+					for (var i = 0; i < OtherCapacity; i++)
+					{
+						m_OtherFree[i] = OtherCapacity - 1 - i;
+					}
+					m_OtherFreeCount = OtherCapacity;
+				}
+				if (m_OtherFreeCount == 0)
+				{
+					// Too many calls open at once on other threads: counted as dropped.
+					m_OtherDropped++;
+					m_Pending++;
+					return default;
+				}
+				var slot = m_OtherFree[--m_OtherFreeCount];
+				m_OtherStarts[slot] = new OtherStart { Scope = scope, Name = name, StartTicks = startTicks };
+				return new TelemetryMethodProbe(this, -slot - 1);
+			}
 		}
 
 		internal void ExitOtherThread(string scope, string name, long startTicks)

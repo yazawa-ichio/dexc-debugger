@@ -13,7 +13,8 @@ namespace Dexc.Telemetry
 	/// </summary>
 	internal sealed class TelemetryTraces
 	{
-		const int SlotCapacity = 256;
+		/// <summary>The spans open at once. A power of two up to 256: a method probe keeps the slot in 8 bits.</summary>
+		internal const int SlotCapacity = 256;
 		const int AttributeLimit = 8;
 		const ulong SpanKindInternal = 1;
 		const ulong StatusCodeError = 2;
