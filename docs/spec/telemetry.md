@@ -272,7 +272,7 @@ using (var span = tracer.Start("stage.load"))
 | イベント `dexc.hitch` | ログのレコード。フレーム時間、main threadの時間とフレームの確保（取れるときだけ）、ロード中か、注釈、場所。書き出し1回につき`HitchEventsPerExport`（既定20）件まで。超えた分も数には入る |
 | イベント `dexc.position` | `PositionSeconds`（既定0で無効）ごとの場所と注釈。場所の地図を描くためのもの |
 
-- 場所は、ゲームが`TelemetryOptions.Location`（`ITelemetryLocation`）で渡す。何を地図とし、どのオブジェクトをプレイヤーとするかはゲームが決める。属性は`dexc.map`、`dexc.position.x`、`.y`、`.z`である。Unityの型を使わないのは、2Dのゲームも同じ形で渡せるようにするためである
+- 場所は、ゲームが`DexcTelemetry.SetLocation`か`TelemetryOptions.Location`（`ITelemetryLocation`）で渡す。`SetLocation`は実行をまたいで残るので、道具がevalでテレメトリーを始めるときも、ゲームは一度渡せばよい。何を地図とし、どのオブジェクトをプレイヤーとするかはゲームが決める。属性は`dexc.map`、`dexc.position.x`、`.y`、`.z`である。Unityの型を使わないのは、2Dのゲームも同じ形で渡せるようにするためである
 - どちらのイベントもまれにしか起きないので、1件ごとの小さな確保は許す。毎フレームの判定は確保しない
 - イベントはログのレコードなので、`MinimumSeverity`と、Pushの`Logs`（既定は送らない）に従う
 

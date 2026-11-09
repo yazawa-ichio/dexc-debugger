@@ -28,6 +28,9 @@ namespace Dexc.Telemetry
 		/// <summary>What the game is doing now, by which the metrics of each frame are split.</summary>
 		internal TelemetryAnnotations Annotations { get; } = new TelemetryAnnotations();
 
+		/// <summary>Where the player is, as the game says, through the options or <see cref="DexcTelemetry.SetLocation"/>.</summary>
+		internal ITelemetryLocation Location { get; set; }
+
 		/// <summary>The loads open now. While there are any, the frames of Unity are loading frames.</summary>
 		internal int LoadsInProgress { get; set; }
 

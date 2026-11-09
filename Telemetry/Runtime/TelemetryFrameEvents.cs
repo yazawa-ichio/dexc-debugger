@@ -18,7 +18,7 @@ namespace Dexc.Telemetry
 		readonly TelemetryLogger m_Hitch;
 		readonly TelemetryLogger m_Position;
 		readonly TelemetryCounter m_Hitches;
-		readonly ITelemetryLocation m_Location;
+		readonly TelemetryMetrics m_Metrics;
 		readonly double m_HitchMilliseconds;
 		readonly int m_HitchLimit;
 		readonly double m_PositionSeconds;
@@ -35,7 +35,7 @@ namespace Dexc.Telemetry
 			m_Hitch = logger.WithEvent(HitchEvent);
 			m_Position = logger.WithEvent(PositionEvent);
 			m_Hitches = metrics.Counter("dexc.hitches", "{frame}");
-			m_Location = options.Location;
+			m_Metrics = metrics;
 			m_HitchMilliseconds = options.HitchMilliseconds;
 			m_HitchLimit = options.HitchEventsPerExport;
 			m_PositionSeconds = options.PositionSeconds;
@@ -49,7 +49,7 @@ namespace Dexc.Telemetry
 			{
 				Hitch(milliseconds, mainThread, allocated, loading);
 			}
-			if (m_PositionSeconds > 0 && m_Location != null)
+			if (m_PositionSeconds > 0 && m_Metrics.Location != null)
 			{
 				m_SincePosition += deltaSeconds;
 				if (m_SincePosition >= m_PositionSeconds)
@@ -127,7 +127,8 @@ namespace Dexc.Telemetry
 
 		bool AddLocation(List<KeyValuePair<string, TelemetryValue>> attributes)
 		{
-			if (m_Location == null || !m_Location.TryGetLocation(out var map, out var x, out var y, out var z))
+			var location = m_Metrics.Location;
+			if (location == null || !location.TryGetLocation(out var map, out var x, out var y, out var z))
 			{
 				return false;
 			}

@@ -811,7 +811,7 @@ namespace Dexc.Autopilot.Compiler
 						if (!File.Exists(workspace.DashboardEndpoint))
 							throw new InvalidOperationException("--upload sends to the dashboard, which is not running.");
 						var url = JsonNode.Parse(File.ReadAllText(workspace.DashboardEndpoint))["url"].GetValue<string>().Replace("\"", string.Empty);
-						start = "if (!" + Api + ".IsRunning) " + Api + ".Start(new Dexc.Telemetry.TelemetryOptions { ExportIntervalSeconds = " + UploadSeconds + " }); ";
+						start = "if (!" + Api + ".IsRunning) " + Api + ".Start(new Dexc.Telemetry.TelemetryOptions { ExportIntervalSeconds = " + UploadSeconds + ", PositionSeconds = 1 }); ";
 						upload = "if (!" + Api + ".IsUploading) " + Api + ".StartUpload(new Dexc.Telemetry.TelemetryUploadOptions { Endpoint = \"" + url + "\", IntervalSeconds = " + UploadSeconds + ", Logs = true }); ";
 					}
 

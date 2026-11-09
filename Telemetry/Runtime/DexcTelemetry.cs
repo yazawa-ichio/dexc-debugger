@@ -257,7 +257,16 @@ namespace Dexc.Telemetry
 		/// <summary>The annotations now, in key order: what the game says it is doing. For other tools to read, such as a report.</summary>
 		public static IReadOnlyList<KeyValuePair<string, string>> Annotations => TelemetryRoot.Current.Metrics.Annotations.Pairs();
 
-		/// <summary>Where the player is, by the <see cref="TelemetryOptions.Location"/> of the run. False when not running or without one.</summary>
+		/// <summary>
+		/// Gives where the player is, for the hitches and the positions, and for other tools such as a report. It stays
+		/// across runs, so a game can set it once even when a tool starts telemetry. Null takes it off.
+		/// </summary>
+		public static void SetLocation(ITelemetryLocation location)
+		{
+			TelemetryRoot.Current.Metrics.Location = location;
+		}
+
+		/// <summary>Where the player is, by the location the game gave. False when not running or without one.</summary>
 		public static bool TryGetLocation(out string map, out float x, out float y, out float z)
 		{
 			return TelemetryRoot.Current.TryGetLocation(out map, out x, out y, out z);

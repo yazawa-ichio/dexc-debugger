@@ -48,7 +48,7 @@ namespace Dexc.Telemetry
 
 		internal TelemetrySources(TelemetryMetrics metrics, TelemetryLogs logs = null, TelemetryOptions options = null)
 		{
-			if (logs != null && options != null && (options.HitchMilliseconds > 0 || (options.PositionSeconds > 0 && options.Location != null)))
+			if (logs != null && options != null && (options.HitchMilliseconds > 0 || options.PositionSeconds > 0))
 			{
 				m_Events = new TelemetryFrameEvents(metrics, logs, options);
 			}

@@ -44,12 +44,15 @@ namespace Dexc.Telemetry
 		/// <summary>The most hitch events between two exports. The hitches beyond are still counted.</summary>
 		public int HitchEventsPerExport = 20;
 
-		/// <summary>Where the player is, for the hitches and the positions. Given by the game.</summary>
+		/// <summary>
+		/// Where the player is, for the hitches and the positions. Given by the game, here or at any time with
+		/// <see cref="DexcTelemetry.SetLocation"/>, as when a tool started telemetry.
+		/// </summary>
 		public ITelemetryLocation Location;
 
 		/// <summary>
 		/// Seconds between the events <c>dexc.position</c>, which say where the player is, for maps of where the game goes.
-		/// Zero, the default, writes none. Needs <see cref="Location"/>.
+		/// Zero, the default, writes none. Needs a location from the game.
 		/// </summary>
 		public double PositionSeconds;
 
