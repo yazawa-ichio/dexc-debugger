@@ -1,0 +1,13 @@
+{
+  "name": "jp.yazawa-ichio.dexc-qa",
+  "version": "0.1.0-pre.1",
+  "displayName": "Dexc QA",
+  "description": "Finds and records defects in a development Player: exceptions, failed checks of bots, and reports of agents, with what is needed to reproduce them.",
+  "unity": "6000.3",
+  "license": "MIT",
+  "dependencies": {
+    "jp.yazawa-ichio.dexc-debugger": "0.1.0-pre.1",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.screencapture": "1.0.0"
+  }
+}

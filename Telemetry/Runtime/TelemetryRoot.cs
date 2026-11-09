@@ -43,6 +43,7 @@ namespace Dexc.Telemetry
 		bool m_RestartsInterval;
 		bool m_IsInPlayerLoop;
 		bool m_AnnotatesScene;
+		ITelemetryLocation m_Location;
 
 		internal bool IsRunning => m_MetricsFrames != null;
 
@@ -118,6 +119,7 @@ namespace Dexc.Telemetry
 			{
 				m_Sources = new TelemetrySources(Metrics, Logs, options);
 			}
+			m_Location = options.Location;
 			if (options.AnnotateScene)
 			{
 				m_AnnotatesScene = true;
@@ -136,6 +138,18 @@ namespace Dexc.Telemetry
 		}
 
 		internal const string SceneAnnotation = "unity.scene";
+
+		/// <summary>Where the player is, by the location the game gave. False when not running or without one.</summary>
+		internal bool TryGetLocation(out string map, out float x, out float y, out float z)
+		{
+			if (m_Location != null && m_Location.TryGetLocation(out map, out x, out y, out z))
+			{
+				return true;
+			}
+			map = null;
+			x = y = z = 0;
+			return false;
+		}
 
 		TelemetryHistogram m_LoadDuration;
 
@@ -456,6 +470,7 @@ namespace Dexc.Telemetry
 			m_TraceFrames = null;
 			m_Sources?.Dispose();
 			m_Sources = null;
+			m_Location = null;
 			// A load open across a stop is not measured: its span is not written either.
 			Metrics.LoadsInProgress = 0;
 			if (m_AnnotatesScene)

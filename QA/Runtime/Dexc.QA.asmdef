@@ -1,0 +1,25 @@
+{
+  "name": "Dexc.QA",
+  "rootNamespace": "Dexc.QA",
+  "references": [
+    "Dexc.Runtime",
+    "Dexc.Telemetry"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "!DISABLE_DEXC_DEBUGGER"
+  ],
+  "versionDefines": [
+    {
+      "name": "jp.yazawa-ichio.dexc-telemetry",
+      "expression": "",
+      "define": "DEXC_QA_HAS_TELEMETRY"
+    }
+  ],
+  "noEngineReferences": false
+}

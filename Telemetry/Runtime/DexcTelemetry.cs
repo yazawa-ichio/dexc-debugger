@@ -254,6 +254,15 @@ namespace Dexc.Telemetry
 			TelemetryRoot.Current.Metrics.Annotations.Set(key, value);
 		}
 
+		/// <summary>The annotations now, in key order: what the game says it is doing. For other tools to read, such as a report.</summary>
+		public static IReadOnlyList<KeyValuePair<string, string>> Annotations => TelemetryRoot.Current.Metrics.Annotations.Pairs();
+
+		/// <summary>Where the player is, by the <see cref="TelemetryOptions.Location"/> of the run. False when not running or without one.</summary>
+		public static bool TryGetLocation(out string map, out float x, out float y, out float z)
+		{
+			return TelemetryRoot.Current.TryGetLocation(out map, out x, out y, out z);
+		}
+
 		/// <summary>
 		/// Starts measuring a load: call it when the player asks for it, and <see cref="TelemetryLoad.End"/> at the first
 		/// frame that takes input again. Steps go in <see cref="TelemetryLoad.Phase"/>. The load is a span

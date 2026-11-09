@@ -1,0 +1,25 @@
+{
+  "name": "DexcDebugger.Tests.QA",
+  "rootNamespace": "DexcDebugger.Tests.QA",
+  "references": [
+    "Dexc.QA",
+    "Dexc.Telemetry",
+    "Dexc.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}
