@@ -155,6 +155,75 @@ namespace Dexc.Autopilot.Compiler
 
 		public static string Now() => DateTime.UtcNow.ToString("O");
 
+		/// <summary>The seed a report of the defect ran on, by the resource the workspace gave the Player, or null.</summary>
+		public static string SeedOf(Workspace workspace, QADefect defect)
+		{
+			foreach (var report in defect.Reports)
+			{
+				var path = Path.Combine(Folder(workspace), "reports", report.Replace('/', Path.DirectorySeparatorChar), "report.json");
+				if (!File.Exists(path))
+					continue;
+				var seed = JsonNode.Parse(File.ReadAllText(path))?["resource"]?["dexc.seed"]?.GetValue<string>();
+				if (!string.IsNullOrEmpty(seed))
+					return seed;
+			}
+
+			return null;
+		}
+
+		/// <summary>Whether the defect occurred in the build after the time.</summary>
+		public static bool OccurredSince(QAData data, string id, string build, string time)
+		{
+			var defect = data.Defects.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
+			return defect != null && defect.Builds.TryGetValue(build, out var occurrence) && occurrence.Last != null && string.CompareOrdinal(occurrence.Last, time) > 0;
+		}
+
+		/// <summary>
+		/// Notes the budgets a build went over, as defects of kind perf, one per budget and series. Counted once per check
+		/// that found it over, so the count says how long it stayed over. A fixed one that goes over again is open again.
+		/// </summary>
+		public static QAChanges RecordBudgets(Workspace workspace, IReadOnlyList<(string Build, string Signature, string Title)> overs)
+		{
+			if (overs.Count == 0)
+				return new QAChanges();
+			return Change(workspace, data =>
+			{
+				var changes = new QAChanges();
+				var now = Now();
+				foreach (var over in overs)
+				{
+					var defect = data.Defects.FirstOrDefault(known => known.Signature == over.Signature);
+					if (defect == null)
+					{
+						defect = new QADefect { Id = "D" + data.Next.ToString("D4"), Signature = over.Signature, Kind = "perf", Title = over.Title, Created = now };
+						data.Next++;
+						data.Defects.Add(defect);
+						changes.Created.Add(defect);
+					}
+
+					if (!defect.Builds.TryGetValue(over.Build, out var occurrence))
+					{
+						occurrence = new QAOccurrence { First = now };
+						defect.Builds[over.Build] = occurrence;
+					}
+
+					occurrence.Runs.TryGetValue("budget", out var checks);
+					occurrence.Runs["budget"] = checks + 1;
+					occurrence.Last = now;
+					defect.Title = over.Title;
+					defect.Updated = now;
+					if (defect.State == QADefect.Fixed && defect.FixedAt != null && string.CompareOrdinal(now, defect.FixedAt) > 0)
+					{
+						defect.State = QADefect.Open;
+						defect.Notes.Add(new QANote { Time = now, By = "dashboard", Text = "fixed -> open: over the budget again in " + over.Build });
+						changes.Recurred.Add(defect);
+					}
+				}
+
+				return changes;
+			});
+		}
+
 		private static void Gather(Workspace workspace, WorkspacePlayer player, QAData data, QAChanges changes)
 		{
 			var source = player.QAFolder;

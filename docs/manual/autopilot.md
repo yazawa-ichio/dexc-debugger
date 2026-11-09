@@ -255,6 +255,7 @@ Dexc.Autopilot.Compiler ws eval "MyGame.Instance.Score"
 | `ws agent <command>` | ダッシュボードの、エージェントの側です。[ダッシュボード](#ダッシュボード)を参照してください |
 | `ws qa pull` | Dexc QAの報告を集め、不具合（`QA/defects.json`）にまとめます。新しい不具合と、直した後にまた起きた不具合を表示します |
 | `ws qa list [--state open]`／`ws qa show <id>`／`ws qa set <id> <state> [--note text]` | 不具合を見て、状態（`open`、`fixing`、`fixed`、`wontfix`）を変えます |
+| `ws qa verify <id> --build <name> [--seconds 300]` | 報告のシードでビルドを起動し直し、Botを走らせて、同じ不具合がまた起きるかを見ます。結果は不具合の経緯に残ります |
 
 `--build a,b`で対象のビルドを絞れます。`workspace.json`のある場所の外から使うときは、`DEXC_WORKSPACE`で指定します。
 

@@ -37,6 +37,30 @@ namespace Dexc.Autopilot.Compiler
 		public List<string> Usings { get; set; } = new List<string>();
 		public List<string> Publicize { get; set; } = new List<string>();
 		public SortedDictionary<string, WorkspaceBuild> Builds { get; set; } = new SortedDictionary<string, WorkspaceBuild>(StringComparer.OrdinalIgnoreCase);
+
+		/// <summary>The performance the game promises itself. Going over one is a defect, found by the dashboard.</summary>
+		public List<WorkspaceBudget> Budgets { get; set; } = new List<WorkspaceBudget>();
+	}
+
+	/// <summary>
+	/// A limit on a distribution: a statistic of a histogram, over a window, for the series whose attributes include
+	/// <see cref="Where"/>. Such as the p95 of unity.frame.time at stage 1 under 33.4 ms, or loads of a level under 5 s.
+	/// </summary>
+	internal sealed class WorkspaceBudget
+	{
+		public string Metric { get; set; }
+
+		/// <summary>mean, p50, p95, p99, max, slow or frozen: the last two are shares of frames, from 0 to 1.</summary>
+		public string Stat { get; set; } = "p95";
+
+		public double Max { get; set; }
+
+		public Dictionary<string, string> Where { get; set; } = new Dictionary<string, string>();
+
+		/// <summary>The values a series needs in the window before it is judged: a few frames say nothing.</summary>
+		public int Minimum { get; set; } = 100;
+
+		public double WindowSeconds { get; set; } = 300;
 	}
 
 	/// <summary>
@@ -412,6 +436,7 @@ namespace Dexc.Autopilot.Compiler
 	///   ws eval "snippet" [--vm ...] [--keep]                      [--build a,b]
 	///   ws agent wait [--timeout 90] | answer build id answer | say text
 	///   ws qa pull | list [--state open] | show id | set id state [--note text]
+	///   ws qa verify id --build name [--seconds 300] [--seed n] [--headless] [--keep]
 	/// Every build answers on a line of its own, whatever the others did.
 	/// </summary>
 	internal static class WorkspaceCommand
@@ -455,7 +480,7 @@ namespace Dexc.Autopilot.Compiler
 					case "telemetry":
 						return Telemetry(workspace, players, arguments, options, compilerPort);
 					case "qa":
-						return QA(workspace, arguments, options);
+						return QA(workspace, arguments, options, compilerPort);
 					case "stop":
 						return ForEach(players, player =>
 						{
@@ -487,7 +512,7 @@ namespace Dexc.Autopilot.Compiler
 		/// defects in QA/defects.json up to date; list, show and set read and change them. No eval: the Players write their
 		/// reports and counts to their own folders, which ws start gave them.
 		/// </summary>
-		private static int QA(Workspace workspace, string[] arguments, Program.Options options)
+		private static int QA(Workspace workspace, string[] arguments, Program.Options options, int compilerPort)
 		{
 			var verb = arguments.Length > 2 ? arguments[2] : string.Empty;
 			switch (verb)
@@ -520,9 +545,62 @@ namespace Dexc.Autopilot.Compiler
 						throw new InvalidOperationException("ws qa set <id> <open|fixing|fixed|wontfix> [--note text]");
 					QAStore.SetState(workspace, arguments[3], arguments[4], "agent", options.Value("note", null));
 					return 0;
+				case "verify":
+					return Verify(workspace, arguments, options, compilerPort);
 				default:
-					throw new InvalidOperationException("ws qa pull | list [--state open] | show <id> | set <id> <state> [--note text]");
+					throw new InvalidOperationException("ws qa pull | list [--state open] | show <id> | set <id> <state> [--note text] | verify <id> --build <name>");
 			}
+		}
+
+		/// <summary>Seconds between gatherings while a verification runs.</summary>
+		private const int VerifyGatherSeconds = 5;
+
+		/// <summary>
+		/// Runs a build again on the seed a report of the defect recorded, with the bot, for a while, and says whether the
+		/// defect came back. It does not say the defect is fixed: a run that did not hit it may not have gone where it
+		/// happens. What ran, and for how long, goes into the notes of the defect.
+		/// </summary>
+		private static int Verify(Workspace workspace, string[] arguments, Program.Options options, int compilerPort)
+		{
+			if (arguments.Length < 4 || !options.Has("build"))
+				throw new InvalidOperationException("ws qa verify <id> --build <name> [--seconds 300] [--seed n] [--headless] [--keep]");
+			var id = arguments[3];
+			var build = options.Value("build", null);
+			if (!workspace.File.Builds.ContainsKey(build))
+				throw new InvalidOperationException("No such build: " + build);
+			var defect = QAStore.Read(workspace).Defects.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase))
+				?? throw new InvalidOperationException("No such defect: " + id);
+			var seed = options.Value("seed", null) ?? QAStore.SeedOf(workspace, defect);
+			var seconds = double.Parse(options.Value("seconds", "300"), System.Globalization.CultureInfo.InvariantCulture);
+			var player = new WorkspacePlayer(workspace, build);
+			var players = new List<WorkspacePlayer> { player };
+			player.Stop();
+			Warm(workspace, players, compilerPort);
+			var started = QAStore.Now();
+			player.Start(options.Has("headless"), seed);
+			var load = new Program.Options();
+			load.Set("load");
+			load.Set("vm", options.Value("vm", "ilruntime"));
+			Console.WriteLine(build + "  " + Bot(workspace, player, load, compilerPort));
+			var clock = Stopwatch.StartNew();
+			var occurred = false;
+			while (clock.Elapsed.TotalSeconds < seconds && player.IsRunning && !occurred)
+			{
+				Thread.Sleep(TimeSpan.FromSeconds(Math.Min(VerifyGatherSeconds, Math.Max(0.1, seconds - clock.Elapsed.TotalSeconds))));
+				QAStore.Gather(workspace);
+				occurred = QAStore.OccurredSince(QAStore.Read(workspace), id, build, started);
+			}
+
+			var exited = !player.IsRunning;
+			QAStore.Gather(workspace);
+			occurred = QAStore.OccurredSince(QAStore.Read(workspace), id, build, started);
+			var result = occurred ? "occurred again" : exited ? "did not occur, but the Player exited" : "did not occur";
+			var note = "verify on " + build + " with seed " + (seed ?? "none") + " for " + clock.Elapsed.TotalSeconds.ToString("0") + " s: " + result;
+			QAStore.AddNote(workspace, id, "agent", note);
+			if (!options.Has("keep"))
+				player.Stop();
+			Console.WriteLine(note);
+			return occurred || exited ? 1 : 0;
 		}
 
 		private static string Line(QADefect defect) =>

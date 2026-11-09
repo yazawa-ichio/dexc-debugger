@@ -49,7 +49,54 @@ namespace Dexc.Autopilot.Dashboard
 		/// <summary>How often the reports of the Players are gathered into defects.</summary>
 		public static readonly TimeSpan GatherInterval = TimeSpan.FromSeconds(5);
 
+		/// <summary>How often the budgets of the workspace are judged.</summary>
+		public static readonly TimeSpan BudgetInterval = TimeSpan.FromSeconds(30);
+
 		private DateTime m_NextGather;
+		private DateTime m_NextBudgetCheck;
+
+		/// <summary>Judges every budget of the workspace on what the Players sent, and notes the ones gone over as defects.</summary>
+		public QAChanges CheckBudgets()
+		{
+			var workspace = Workspace();
+			var overs = new List<(string Build, string Signature, string Title)>();
+			foreach (var budget in workspace.File.Budgets)
+			{
+				var since = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - budget.WindowSeconds * 1000;
+				foreach (var row in Perf.Summary(budget.Metric, since))
+				{
+					var attributes = row["attributes"].AsObject();
+					if (budget.Where.Any(pair => attributes[pair.Key]?.ToString() != pair.Value) || row["count"].GetValue<ulong>() < (ulong)budget.Minimum)
+						continue;
+					var value = row[budget.Stat]?.GetValue<double>() ?? double.NaN;
+					if (!(value > budget.Max))
+						continue;
+					var series = row["series"].GetValue<string>();
+					var signature = "perf:" + budget.Stat + ":" + series;
+					var title = budget.Metric + " " + budget.Stat + " " + value.ToString("0.###") + " > " + budget.Max.ToString("0.###") + (series.Contains('{') ? " " + series.Substring(series.IndexOf('{')) : string.Empty);
+					overs.Add((row["build"].GetValue<string>(), signature, title));
+				}
+			}
+
+			QAChanges changes;
+			try
+			{
+				changes = QAStore.RecordBudgets(workspace, overs);
+			}
+			catch (IOException exception)
+			{
+				Console.Error.WriteLine("Budgets: " + exception.Message);
+				return new QAChanges();
+			}
+
+			foreach (var defect in changes.Created)
+				Relay.Defect("found", defect);
+			foreach (var defect in changes.Recurred)
+				Relay.Defect("recurred", defect);
+			if (overs.Count > 0)
+				Publish("qa", new JsonObject());
+			return changes;
+		}
 		private DateTime m_DefectsWritten;
 
 		/// <summary>Takes the reports of the Players into defects, tells the agent of new and returning ones, and the views of any change.</summary>
@@ -104,6 +151,12 @@ namespace Dexc.Autopilot.Dashboard
 				{
 					m_NextGather = DateTime.UtcNow + GatherInterval;
 					GatherDefects();
+				}
+
+				if (DateTime.UtcNow >= m_NextBudgetCheck)
+				{
+					m_NextBudgetCheck = DateTime.UtcNow + BudgetInterval;
+					CheckBudgets();
 				}
 				try
 				{
