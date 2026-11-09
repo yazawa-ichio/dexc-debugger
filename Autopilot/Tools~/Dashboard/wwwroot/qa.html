@@ -12,7 +12,9 @@
 		#list tr.chosen td { background: var(--accent-soft); }
 		.shot { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; }
 		.report { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
-		.fields { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+		.fields { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+		#detail .log { overflow-wrap: anywhere; }
+		.layout > * { min-width: 0; }
 	</style>
 </head>
 <body>
