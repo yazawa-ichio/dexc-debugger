@@ -263,6 +263,36 @@ namespace DexcDebugger.Tests.Telemetry
 		}
 
 		[UnityTest]
+		public IEnumerator EachOpenFileSendsItsEndOnceARound()
+		{
+			var files = new TelemetryFileSet(m_Directory, "run", 100000, 1000000);
+			var time = 0d;
+			var uploader = new TelemetryUploader(Options(), files, new TelemetryMetrics(), time);
+			var metrics = files.Open("metrics");
+			var traces = files.Open("traces");
+			try
+			{
+				metrics.WriteFrame(Bodies((1, 5)), 5);
+				traces.WriteFrame(Bodies((2, 5)), 5);
+				Assert.That(files.Writing.Wait(s_Wait), Is.True);
+				yield return Until(uploader, () => !uploader.IsBusy && Requests().Count == 2, () => time += 0.1);
+				metrics.WriteFrame(Bodies((3, 5)), 5);
+				Assert.That(files.Writing.Wait(s_Wait), Is.True);
+				var stop = time + 3;
+				yield return Until(uploader, () => time >= stop, () => time += 0.1);
+			}
+			finally
+			{
+				metrics.Dispose();
+				traces.Dispose();
+				uploader.Dispose();
+				files.Writing.Stop(s_Wait);
+			}
+
+			Assert.That(Requests().Select(request => request.Path), Is.EquivalentTo(new[] { "/v1/metrics", "/v1/traces" }), "one round sends both, and the next frame waits for the next round");
+		}
+
+		[UnityTest]
 		public IEnumerator UnavailableIsSentAgainAfterRetryAfter()
 		{
 			Frames("metrics-a.otlp", 10);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
@@ -65,6 +66,7 @@ namespace Dexc.Telemetry
 		double m_Wait = FirstWaitSeconds;
 		int m_Limit;
 		bool m_Kicked;
+		readonly List<string> m_RoundSent = new List<string>();
 
 		internal TelemetryUploader(TelemetryUploadOptions options, TelemetryFileSet files, TelemetryMetrics metrics, double now)
 		{
@@ -138,31 +140,33 @@ namespace Dexc.Telemetry
 			if (now >= m_NextRound || m_Kicked)
 			{
 				m_Kicked = false;
-				Prepare(false);
+				m_RoundSent.Clear();
+				Prepare();
 			}
 		}
 
-		/// <param name="continuing">
-		/// Goes on with a round after a request: what is left of closed files goes at once, but the end of a file being written
-		/// waits for the next round unless it fills a whole request. Without that, a game writing fast would send a request
-		/// for every frame it writes.
-		/// </param>
-		void Prepare(bool continuing)
+		/// <summary>
+		/// Finds the next request of the round. What is left of closed files goes at once. The end of each file being written
+		/// goes once a round, and again in the same round only when it fills a whole request: without that, a game writing
+		/// fast would send a request for every frame it writes.
+		/// </summary>
+		void Prepare()
 		{
 			var settled = TakeSettled();
 			var limit = m_Limit;
+			var sent = m_RoundSent.ToArray();
 #if UNITY_WEBGL && !UNITY_EDITOR
 			// No threads.
 			try
 			{
-				m_Preparing = Task.FromResult(Step(settled, limit, continuing));
+				m_Preparing = Task.FromResult(Step(settled, limit, sent));
 			}
 			catch (IOException exception)
 			{
 				m_Preparing = Task.FromException<Chunk>(exception);
 			}
 #else
-			m_Preparing = Task.Run(() => Step(settled, limit, continuing));
+			m_Preparing = Task.Run(() => Step(settled, limit, sent));
 #endif
 		}
 
@@ -235,7 +239,7 @@ namespace Dexc.Telemetry
 					// Half the frames, from the same place: the .sent has not moved.
 					m_Chunk = null;
 					m_Limit = Math.Max(1, chunk.BodyBytes / 2);
-					Prepare(false);
+					Prepare();
 					return;
 				}
 				m_Dropped.Add(chunk.Frames, TelemetryDetail.Basic);
@@ -269,8 +273,9 @@ namespace Dexc.Telemetry
 		{
 			m_SettledPath = chunk.Path;
 			m_SettledOffset = chunk.Offset + chunk.Consumed;
+			m_RoundSent.Add(ClosedPath(chunk.Path));
 			Reset();
-			Prepare(true);
+			Prepare();
 		}
 
 		void Reset()
@@ -286,7 +291,8 @@ namespace Dexc.Telemetry
 		/// oldest first. Closed files of any run, and the open files of this run up to their last whole frame. The open files
 		/// of another Player are its own to send.
 		/// </summary>
-		Chunk Step((string Path, long Offset)? settled, int limit, bool continuing)
+		/// <param name="sent">The files, by their closed names, whose end went out in this round already.</param>
+		Chunk Step((string Path, long Offset)? settled, int limit, string[] sent)
 		{
 			if (settled.HasValue)
 			{
@@ -308,7 +314,7 @@ namespace Dexc.Telemetry
 					continue;
 				}
 				var chunk = Read(file.Path, offset, limit);
-				if (chunk != null && (!continuing || !file.Open || chunk.Full))
+				if (chunk != null && (!file.Open || chunk.Full || Array.IndexOf(sent, ClosedPath(file.Path)) < 0))
 				{
 					return chunk;
 				}
