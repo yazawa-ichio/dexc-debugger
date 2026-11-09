@@ -252,6 +252,10 @@ namespace Dexc.QA
 			}
 			model.Add(new KeyValuePair<string, object>("fields", fields));
 			model.Add(new KeyValuePair<string, object>("attachments", attachments));
+			foreach (var section in report.Sections)
+			{
+				model.Add(new KeyValuePair<string, object>(section.Key, section.Value));
+			}
 			if (errors.Count > 0)
 			{
 				model.Add(new KeyValuePair<string, object>("contributorErrors", errors));
@@ -368,11 +372,6 @@ namespace Dexc.QA
 			}));
 #endif
 			model.Add(Member("logs", Logs()));
-			model.Add(Member("diagnostics", Diagnostics()));
-			if (m_Options.InspectorWatches)
-			{
-				model.Add(Member("inspector", QAInspector.Watches()));
-			}
 			return model;
 		}
 
@@ -420,25 +419,6 @@ namespace Dexc.QA
 				}
 			}
 			return lines;
-		}
-
-		/// <summary>What Dexc noted as wrong: definitions it could not use, commands that failed.</summary>
-		static List<object> Diagnostics()
-		{
-			var diagnostics = new List<object>();
-			var page = DebugDiagnostics.GetSummaries(new DebugDiagnosticQuery(DebugDiagnosticSourceFilter.All, DebugFeatureFilter.All, null, new DebugPageRequest(0, 20)));
-			foreach (var summary in page.Summaries)
-			{
-				diagnostics.Add(new List<KeyValuePair<string, object>>
-				{
-					Member("severity", summary.Severity.ToString()),
-					Member("feature", summary.Feature.ToString()),
-					Member("code", summary.Code),
-					Member("message", summary.Message),
-					Member("identity", summary.Identity),
-				});
-			}
-			return diagnostics;
 		}
 
 		IEnumerator Screenshot(string folder, List<KeyValuePair<string, object>> model)

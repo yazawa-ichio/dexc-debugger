@@ -3,8 +3,7 @@
     "rootNamespace": "Dexc",
     "references": [
         "Unity.RenderPipelines.Universal.Runtime",
-        "Unity.RenderPipelines.Core.Runtime",
-        "Dexc.Telemetry"
+        "Unity.RenderPipelines.Core.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -30,11 +29,6 @@
             "name": "com.unity.render-pipelines.universal",
             "expression": "17.6",
             "define": "DEXC_URP_COMPATIBILITY_REMOVED"
-        },
-        {
-            "name": "jp.yazawa-ichio.dexc-telemetry",
-            "expression": "",
-            "define": "DEXC_HAS_TELEMETRY"
         }
     ],
     "noEngineReferences": false

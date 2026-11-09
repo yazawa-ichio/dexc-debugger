@@ -1,0 +1,11 @@
+{
+  "name": "jp.yazawa-ichio.dexc-bridge",
+  "version": "0.1.0-pre.1",
+  "displayName": "Dexc Bridge",
+  "description": "Joins Dexc Debugger with Dexc Telemetry and Dexc QA when they are in the project: a Telemetry panel in the debug menu, and the Inspector Watch and the diagnostics of Dexc in each defect report.",
+  "unity": "6000.3",
+  "license": "MIT",
+  "dependencies": {
+    "jp.yazawa-ichio.dexc-debugger": "0.1.0-pre.1"
+  }
+}

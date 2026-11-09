@@ -39,11 +39,11 @@ namespace DexcDebugger.Tests.QA
 		}
 
 		[Test]
-		public void TheLibraryDependsOnDexcAndOptionallyOnTelemetryOnly()
+		public void TheLibraryDependsOnNothingOfDexcButTelemetryWhenThere()
 		{
 			var references = Library.GetReferencedAssemblies().Select(name => name.Name).Where(name => name.StartsWith("Dexc.")).OrderBy(name => name);
 
-			Assert.That(references, Is.SubsetOf(new[] { "Dexc.Runtime", "Dexc.Telemetry" }));
+			Assert.That(references, Is.SubsetOf(new[] { "Dexc.Telemetry" }), "Dexc itself comes in through Dexc Bridge");
 		}
 	}
 }

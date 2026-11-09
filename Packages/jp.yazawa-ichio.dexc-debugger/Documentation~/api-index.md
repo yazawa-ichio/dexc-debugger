@@ -16,7 +16,7 @@
 | Boot起動 | `DebugBootSelection.Open`／`Tag`／`Title`／`Panels`／`ResolveScene`／`Flush`／`Start`／`Reset` | [Boot](../Runtime/DexcBoot.cs) |
 | パネル | `DebugPanel`／`DebugWidget`各種（Toggle／Choice／Number／Text／Button／Label）、`DebugPanels.Register`／`Unregister`／`All`／`Home`（横並び表示でmenuを開いたときに出すPanel）。Runtime menuの`Panels`ページに3rendererで表示、Editorは`Dexc Debugger`の`Panels`ページ | [Panel](../Runtime/DexcPanel.cs) |
 | HUD Widget | `DebugDisplayWidget`、`DebugDisplay.RegisterWidget`／`UnregisterWidget` | [Display Widget](../Runtime/DexcDisplayWidget.cs) |
-| テレメトリー | Dexc Telemetry（`jp.yazawa-ichio.dexc-telemetry`）がprojectにあれば、`DEXC_HAS_TELEMETRY`が定義され、Panelsに`Telemetry`が加わる。動作中か、書き出し先、指定フレームのキャプチャ、`Seal`。開始はゲームが行う。packageが無ければ何も変わらない | [Telemetry panel](../Runtime/DexcTelemetryPanel.cs) |
+| テレメトリー | Dexc Bridge（`jp.yazawa-ichio.dexc-bridge`）とDexc Telemetryがprojectにあれば、Panelsに`Telemetry`が加わる。動作中か、書き出し先、指定フレームのキャプチャ、`Seal`、送信の開始と停止。Dexc本体はTelemetryを参照しない | Bridgeの`TelemetryPanel` |
 | Runtime UI 切替 | `DebugMenuRenderer`、`DebugMenu.Renderer`／`SetRenderer`／`RendererName`、`DebugGamepadInputProvider` | [Runtime UI](../DebugUI/DexcRuntimeUI.cs)、[gamepad](../DebugUI/DebugGamepadInputProvider.cs) |
 | Boot UI | `DebugBootMenu.Open(tag, loadScene)`／`Start`／`Close`／`IsOpen`／`Title`／`Alignment`／`AutoStartSeconds`／`Started`／`SetInputProvider`、`DebugBootScene` component（`Tag`）、Editorの`Dexc Boot` window（`DexcBootWindow`） | [Boot Menu](../DebugUI/DexcBootMenu.cs)、[Boot Scene](../DebugUI/DebugBootScene.cs)、[Boot window](../Editor/DexcBootWindow.cs) |
 | Editor操作画面 | `Dexc Debugger` window（`DexcDebuggerWindow`、menu `Window/Dexc/Dexc Debugger`） | [Debugger window](../Editor/DexcDebuggerWindow.cs) |

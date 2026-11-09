@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("DexcDebugger.Tests.Runtime")]
 [assembly: InternalsVisibleTo("DexcDebugger.Tests.Editor")]
-[assembly: InternalsVisibleTo("DexcDebugger.Tests.QA")]
+[assembly: InternalsVisibleTo("DexcDebugger.Tests.Bridge")]
 [assembly: InternalsVisibleTo("Dexc.DebugUI")]
 [assembly: InternalsVisibleTo("Dexc.Editor")]
 [assembly: InternalsVisibleTo("DexcDebugger.Verification.Runtime")]

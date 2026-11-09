@@ -32,10 +32,5 @@ namespace Dexc.QA
 
 		public int LogsInReport = 50;
 
-		/// <summary>
-		/// Puts the fields of the Watch of the Dexc Inspector in a report, with their values at that moment: what a person
-		/// or an agent chose to keep an eye on is what they will want to see. Up to 50.
-		/// </summary>
-		public bool InspectorWatches = true;
 	}
 }

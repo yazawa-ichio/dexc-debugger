@@ -6,13 +6,14 @@
 
 | 層 | 場所 | 持つもの |
 |---|---|---|
-| Dexc本体 | `Packages/jp.yazawa-ichio.dexc-debugger` | 4機能とDiagnostics。QAはその読み取りAPIを使う。スクリーンショットと報告のファイルは本体の範囲外である（[スコープ](core-scope.md)） |
+| Dexc本体 | `Packages/jp.yazawa-ichio.dexc-debugger` | 4機能とDiagnostics。スクリーンショットと報告のファイルは本体の範囲外である（[スコープ](core-scope.md)） |
+| Dexc Bridge | `Bridge/` | DexcのInspectorのWatchとDiagnosticsを報告に足す（[Bridgeの仕様](bridge.md)） |
 | Dexc QA | `QA/`（`jp.yazawa-ichio.dexc-qa`） | Playerの中での不具合の検出と記録 |
 | Dexc Telemetry | `Telemetry/` | 注釈と場所。あれば報告に載せる |
 | ツール | `Autopilot/Tools~` | 報告を集めて不具合にまとめ、状態を管理する。修正の確認 |
 | ゲーム | プロジェクト | Botの検査の中身、報告に足す項目、外部への送信 |
 
-- `Dexc.QA`は`Dexc.Runtime`を参照する。4機能の上のadapterとしてDiagnosticsを読むためである。`Dexc.Telemetry`はVersion Definesの`DEXC_QA_HAS_TELEMETRY`で任意とする
+- `Dexc.QA`はDexc本体を参照しない。Dexcの情報はDexc Bridgeが拡張点から足す。`Dexc.Telemetry`はVersion Definesの`DEXC_QA_HAS_TELEMETRY`で任意とする
 - Autopilotには依存しない。BotとevalはPlayerの型として`DexcQA`を直接呼ぶ
 - asmdefは`!DISABLE_DEXC_DEBUGGER`を持ち、Dexcと同じく開発用とする。リリースに残すのはテレメトリーだけである
 - mutable staticは`QARoot.s_Current`だけとする。Subsystem Registrationで作り直す
@@ -46,7 +47,7 @@
 
 | ファイル | 内容 |
 |---|---|
-| `report.json` | id、実行、種類、鍵、題名、詳細、その鍵の何回目か、時刻、フレーム、ビルド（製品、版、Unity、platform、development）、resource（`-dexc-telemetry-resource`のビルド、コミット、シード）、注釈と場所とテレメトリーのフォルダー（Telemetryがあるとき）、直近のログ（`LogsInReport`、既定50件）、DexcのDiagnostics（20件まで）、ゲームの項目、添付の名前、スクリーンショット |
+| `report.json` | id、実行、種類、鍵、題名、詳細、その鍵の何回目か、時刻、フレーム、ビルド（製品、版、Unity、platform、development）、resource（`-dexc-telemetry-resource`のビルド、コミット、シード）、注釈と場所とテレメトリーのフォルダー（Telemetryがあるとき）、直近のログ（`LogsInReport`、既定50件）、ゲームの項目、添付の名前、拡張点が足した節（Bridgeがあれば`inspector`と`diagnostics`）、スクリーンショット |
 | `screenshot.png` | フレームの終わりに撮る。描かないPlayer（batch mode、graphicsなし）とEdit Modeでは撮らず、`screenshot`をnullとする。撮るまでの間は`pending`である |
 | 添付 | ゲームが足したファイル |
 
@@ -56,18 +57,13 @@
 
 ## Inspectorとの連携
 
-`InspectorWatches`（既定は有効）で、報告にDexc InspectorのWatchを載せる。人やエージェントがWatchに入れたfieldは、不具合のときに見たい値だからである。
-
-- 公開のread APIだけを使う（`GetWatches`、`GetRegistered`、`GetComponents`、`GetFields`）。4機能の上のadapterとして読むので、連携のパッケージへそのまま移せる
-- Watchごとに、対象（登録したラベルとパス。Sceneから辿った対象は無し）、Component、fieldの表示名、Watchの状態、値の写しを書く。値は`DebugValue`をそのまま数値、文字列、配列、objectにする。Unity参照はラベル、読めない値は型名とエラーを書く
-- 50件までとする。Dexcが動いていなければ`inspector`はnullである
-- Inspectorのhandleはその実行の中でしか意味を持たないので、報告には値の写しだけを残す。名前を引けなかったWatch（対象が消えた等）は、`error`に理由を書き、ログには書かない
+Dexc Bridgeが、報告にInspectorのWatchとDexcのDiagnosticsを足す。決まりは[Bridgeの仕様](bridge.md#qaの報告)にある。
 
 ## 拡張点
 
 | 拡張点 | 呼ばれるとき |
 |---|---|
-| `IDexcQAContributor.Contribute(report)` | 報告を書く前。`Set(key, value)`で項目、`Attach(name, bytes)`でファイルを足す。投げた例外は報告の`contributorErrors`に書き、ほかは続ける |
+| `IDexcQAContributor.Contribute(report)` | 報告を書く前。`Set(key, value)`で項目、`SetSection(name, value)`で`report.json`の節、`Attach(name, bytes)`でファイルを足す。節の名前は報告が自分で使う名前を取れない。値はnull、bool、数、文字列、キーと値の組の並び（object）、そのほかの並び（配列）を入れ子にしたもの。投げた例外は報告の`contributorErrors`に書き、ほかは続ける |
 | `IDexcQASink.OnReportWritten(info)` | 書いた後。課題管理などへの送信はここでゲームが行う。投げた例外は警告にして飛ばす |
 
 - QAは自分のエラーをErrorのログに書かない。書くと報告に戻ってくるためである。問題は報告の中か、Warningに書く

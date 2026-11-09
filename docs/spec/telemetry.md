@@ -348,7 +348,7 @@ DexcTelemetry.StopCapture();
 - ファイルに直接触れられない環境のために、`DexcTelemetry.Files()`、`ReadFile(name, offset, buffer)`、`DeleteFile(name)`を持つ。運ぶ経路はパッケージに持たせない（Autopilotの接続はT9）
 - ホストのCLIの`pull`は、フォルダー（Windows、Editor）とadb（Android）から取る
 - Autopilotのワークスペースは、`ws telemetry pull`でevalから`Seal`を呼び、各ビルドのフォルダーから集める（[Autopilotの仕様](autopilot.md#テレメトリー)）
-- Dexcは、このパッケージがあれば`DEXC_HAS_TELEMETRY`を定義し（Version Defines）、デバッグメニューのPanelsに`Telemetry`を足す。動作中か、書き出し先（`DexcTelemetry.Folder`）、キャプチャ、`Seal`を持つ。このパッケージはDexcを参照しない
+- Dexc Bridgeが、このパッケージとDexcがあれば、デバッグメニューのPanelsに`Telemetry`を足す。動作中か、書き出し先（`DexcTelemetry.Folder`）、キャプチャ、`Seal`、送信の開始と停止を持つ（[Bridgeの仕様](bridge.md)）。このパッケージもDexcも、お互いを参照しない
 
 ### Push（サーバーがあるとき）
 
@@ -367,7 +367,7 @@ DexcTelemetry.StopCapture();
 
 - 送る種類（metrics、logs、traces）は個別に止められる。Unityのログには任意の文字列が入りうるので、logsの送信は既定で止める
 - パッケージは端末やユーザーのIDを集めない。送信はゲームが呼んだときだけ始める
-- 1つのビルドではPushかPullのどちらかにする。どちらも受け渡した後にファイルを消すためである
+- 1つのビルドではPushかPullのどちらかにする。どちらも受け渡した後にファイルを消すためである。送信は動いているテレメトリーに後から付けられる（Dexcのメニュー、`ws telemetry start --upload`）。ワークスペースは、送信中のPlayerのファイルをPullしない
 - APIは`DexcTelemetry.StartUpload(TelemetryUploadOptions)`、`StopUpload`、`IsUploading`。動いているテレメトリーにだけ付き、`Stop`で止まる。送る時期のうち「ファイルを閉じたとき」は`Seal`である。大きさで次のファイルへ移ったときは、次の60秒で送る
 - 送る対象は、閉じたファイル（前の実行のものを含む）と、このPlayerが書いている途中のファイルの最後の完全なフレームまで。ほかのPlayerが書いている途中のファイルは送らない
 - `.sent`は閉じた後の名前（`<name>.otlp.sent`）で持ち、名前が変わっても続く。フォルダーの上限で消えたファイルの`.sent`は消す。答えを受ける前にアプリが終わった分は次に送り直すので、同じ分が二度届くことがある（少なくとも1回）

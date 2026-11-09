@@ -1,16 +1,54 @@
+#if DEXC_BRIDGE_HAS_QA
 using System;
 using System.Collections.Generic;
+using Dexc.QA;
+using UnityEngine;
 
-namespace Dexc.QA
+namespace Dexc.Bridge
 {
 	/// <summary>
-	/// What the Watch of the Dexc Inspector shows when a report is written: the fields the person or the agent chose to
-	/// keep an eye on, with their values at that moment. Read through the public Inspector API only, as an adapter on top
-	/// of Dexc, so that it can move to a package of its own. Values are copies: the handles of the Inspector live only in
-	/// this run.
+	/// Puts what Dexc knows into each defect report of Dexc QA: the Watch of the Inspector, the fields a person or an agent
+	/// chose to keep an eye on, with their values at that moment, and the diagnostics of Dexc. Through the public API of
+	/// both only. Values are copies: the handles of the Inspector live only in this run.
 	/// </summary>
-	internal static class QAInspector
+	internal sealed class QAInspectorSection : IDexcQAContributor
 	{
+		/// <summary>Added at the start of every run, as QA starts with no contributors.</summary>
+		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
+		static void Attach()
+		{
+			DexcQA.AddContributor(new QAInspectorSection());
+		}
+
+		public void Contribute(DexcQAReport report)
+		{
+			report.SetSection("inspector", Watches());
+			report.SetSection("diagnostics", Diagnostics());
+		}
+
+		/// <summary>What Dexc noted as wrong: definitions it could not use, commands that failed. Null without Dexc running.</summary>
+		internal static List<object> Diagnostics()
+		{
+			if (!DexcDebugger.IsInitialized)
+			{
+				return null;
+			}
+			var diagnostics = new List<object>();
+			var page = DebugDiagnostics.GetSummaries(new DebugDiagnosticQuery(DebugDiagnosticSourceFilter.All, DebugFeatureFilter.All, null, new DebugPageRequest(0, PageSize)));
+			foreach (var summary in page.Summaries)
+			{
+				diagnostics.Add(new List<KeyValuePair<string, object>>
+				{
+					Member("severity", summary.Severity.ToString()),
+					Member("feature", summary.Feature.ToString()),
+					Member("code", summary.Code),
+					Member("message", summary.Message),
+					Member("identity", summary.Identity),
+				});
+			}
+			return diagnostics;
+		}
+
 		const int WatchLimit = 50;
 		const int PageSize = 20;
 
@@ -183,3 +221,4 @@ namespace Dexc.QA
 		}
 	}
 }
+#endif

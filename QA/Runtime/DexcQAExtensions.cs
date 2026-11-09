@@ -27,6 +27,38 @@ namespace Dexc.QA
 	{
 		internal readonly List<KeyValuePair<string, string>> Fields = new List<KeyValuePair<string, string>>();
 		internal readonly List<KeyValuePair<string, byte[]>> Attachments = new List<KeyValuePair<string, byte[]>>();
+		internal readonly List<KeyValuePair<string, object>> Sections = new List<KeyValuePair<string, object>>();
+
+		/// <summary>The members of report.json that are the report's own, which a section cannot take.</summary>
+		static bool IsReserved(string name)
+		{
+			switch (name)
+			{
+				case "id":
+				case "run":
+				case "kind":
+				case "signature":
+				case "title":
+				case "detail":
+				case "occurrence":
+				case "time":
+				case "realtime":
+				case "frame":
+				case "build":
+				case "resource":
+				case "annotations":
+				case "location":
+				case "telemetry":
+				case "logs":
+				case "fields":
+				case "attachments":
+				case "contributorErrors":
+				case "screenshot":
+					return true;
+				default:
+					return false;
+			}
+		}
 
 		internal DexcQAReport(string kind, string signature, string title, string detail)
 		{
@@ -50,6 +82,22 @@ namespace Dexc.QA
 			}
 			Fields.RemoveAll(pair => pair.Key == key);
 			Fields.Add(new KeyValuePair<string, string>(key, value));
+		}
+
+		/// <summary>
+		/// Adds a part of its own to report.json, as a bridge to another tool does: the Watch of the Dexc Inspector, its
+		/// diagnostics. The value is null, a bool, a number, a string, a list of key-value pairs with string keys (an
+		/// object, in order) or any other sequence (an array), nested as deep as needed. A name set again takes the new value.
+		/// </summary>
+		/// <exception cref="ArgumentException">The name is empty or one of the report's own.</exception>
+		public void SetSection(string name, object value)
+		{
+			if (string.IsNullOrEmpty(name) || IsReserved(name))
+			{
+				throw new ArgumentException("A section needs a name the report does not use itself: " + name, nameof(name));
+			}
+			Sections.RemoveAll(pair => pair.Key == name);
+			Sections.Add(new KeyValuePair<string, object>(name, value));
 		}
 
 		/// <summary>Adds a file beside the report, such as a save. The name is a plain file name.</summary>

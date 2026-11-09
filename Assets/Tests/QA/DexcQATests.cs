@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Dexc;
 using Dexc.QA;
 using Dexc.Telemetry;
 using NUnit.Framework;
@@ -165,46 +164,6 @@ namespace DexcDebugger.Tests.QA
 			Assert.That(report, Does.Contain("\"save.txt\""));
 			Assert.That(report, Does.Contain("no save"), "a contributor that throws is noted");
 			Assert.That(File.ReadAllText(Path.Combine(m_Directory, id, "save.txt")), Is.EqualTo("A"));
-		}
-
-		[Test]
-		public void TheFieldsWatchedInTheInspectorGoInWithTheirValues()
-		{
-			Dexc.DexcDebugger.ResetForTests();
-			Dexc.DexcDebugger.Initialize();
-			var host = new GameObject("Shelf");
-			try
-			{
-				// A component of the runtime tests: one of this Editor-only assembly could not be added to an object.
-				var shelf = host.AddComponent<DexcCollectionFixture>();
-				shelf.Values = new List<int> { 5, 6 };
-				DebugInspector.Register("Tests/Shelf", shelf, "Shelf");
-				var target = DebugInspector.GetRegistered(new DebugListQuery("Tests/Shelf", "", new DebugPageRequest(0, 20))).Entries.Single().Target;
-				var component = DebugInspector.GetComponents(target).Components.Single(item => item.TypeName == typeof(DexcCollectionFixture).FullName).Component;
-				var field = component.GetFields(new DebugPageRequest(0, 20)).Fields.Single(item => item.Name == "Values");
-				Assert.That(component.AddWatch(field.Id, TimeSpan.Zero).Status, Is.EqualTo(DebugOperationStatus.Succeeded));
-				Start();
-
-				var report = Report(DexcQA.Report("check", "shelf", "The shelf is wrong"));
-
-				Assert.That(report, Does.Contain("\"target\": \"Shelf (Tests/Shelf)\""));
-				Assert.That(report, Does.Contain("\"field\": \"" + field.DisplayName + "\""));
-				Assert.That(report, Does.Contain("\"count\": 2"), "the value as the Inspector reads it");
-			}
-			finally
-			{
-				UnityEngine.Object.DestroyImmediate(host);
-				Dexc.DexcDebugger.ResetForTests();
-			}
-		}
-
-		[Test]
-		public void WithoutDexcThereIsNoInspectorPart()
-		{
-			Dexc.DexcDebugger.ResetForTests();
-			Start();
-
-			Assert.That(Report(DexcQA.Report("check", "x", "x")), Does.Contain("\"inspector\": null"));
 		}
 
 		[Test]

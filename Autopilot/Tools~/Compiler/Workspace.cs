@@ -465,7 +465,7 @@ namespace Dexc.Autopilot.Compiler
 	///   ws add name player [--dlls a,b] [--csproj file] [--editor dir] [--commit sha]
 	///   ws remove name
 	///   ws refs | start [--headless] [--seed n] | stop | status | watch      [--build a,b]
-	///   ws telemetry start [--watch a,b] [--upload] | capture frames [--profiler] | pull | stop   [--build a,b]
+	///   ws telemetry start [--watch a,b] [--upload [--endpoint url]] | capture frames [--profiler] | pull | stop   [--build a,b]
 	///   ws bot [--load] [--vm ...]                                 [--build a,b]
 	///   ws eval "snippet" [--vm ...] [--keep]                      [--build a,b]
 	///   ws agent wait [--timeout 90] | answer build id answer | say text
@@ -639,6 +639,9 @@ namespace Dexc.Autopilot.Compiler
 
 		private static string Line(QADefect defect) =>
 			defect.Id + "  " + defect.State.PadRight(7) + "  " + defect.Count.ToString().PadLeft(5) + "x  " + string.Join(",", defect.Builds.Keys).PadRight(12) + "  " + defect.Title + "  [" + defect.Signature + "]";
+
+		/// <summary>What a Player that sends its files answers to a pull.</summary>
+		private const string Uploading = "uploading";
 
 		/// <summary>Seconds between the metrics a Player writes and sends with ws telemetry start --upload.</summary>
 		private const int UploadSeconds = 5;
@@ -840,7 +843,8 @@ namespace Dexc.Autopilot.Compiler
 					if (options.Has("upload"))
 					{
 						// To the dashboard, every few seconds, for it to draw as the Players go. The logs too: they carry the hitches.
-						var url = workspace.RunningDashboard()["url"].GetValue<string>().Replace("\"", string.Empty);
+						// The dashboard by default; --endpoint for any OTLP/HTTP server, such as a collector started later.
+						var url = (options.Value("endpoint", null) ?? workspace.RunningDashboard()["url"].GetValue<string>()).Replace("\"", string.Empty);
 						start = "if (!" + Api + ".IsRunning) " + Api + ".Start(new Dexc.Telemetry.TelemetryOptions { ExportIntervalSeconds = " + UploadSeconds + ", PositionSeconds = 1 }); ";
 						upload = "if (!" + Api + ".IsUploading) " + Api + ".StartUpload(new Dexc.Telemetry.TelemetryUploadOptions { Endpoint = \"" + url + "\", IntervalSeconds = " + UploadSeconds + ", Logs = true }); ";
 					}
@@ -852,7 +856,8 @@ namespace Dexc.Autopilot.Compiler
 					var profiler = options.Has("profiler") ? "true" : "false";
 					return ForEach(Running(players), player => Eval(workspace, player, "return " + Api + ".Capture(" + frames + ", Dexc.Telemetry.TelemetryDetail.Detailed, " + profiler + ");", options, compilerPort));
 				case "pull":
-					return ForEach(players, player => Gather(workspace, player, Api + ".Seal(); return true;", options, compilerPort));
+					// A Player that sends its files to a server deletes them once sent: taking them here would race it.
+					return ForEach(players, player => Gather(workspace, player, "if (" + Api + ".IsUploading) return \"" + Uploading + "\"; " + Api + ".Seal(); return \"sealed\";", options, compilerPort));
 				case "stop":
 					return ForEach(players, player => Gather(workspace, player, Api + ".Stop(); return true;", options, compilerPort));
 				default:
@@ -864,6 +869,8 @@ namespace Dexc.Autopilot.Compiler
 		private static string Gather(Workspace workspace, WorkspacePlayer player, string snippet, Program.Options options, int compilerPort)
 		{
 			var answer = player.IsRunning ? Eval(workspace, player, snippet, options, compilerPort) : "stopped";
+			if (answer.Contains("\"value\":\"" + Uploading + "\""))
+				return "sending to a server: the files go there, not here (" + answer + ")";
 			var taken = player.TakeTelemetry(workspace.Telemetry(player.Name));
 			return "took " + taken + " files into " + workspace.Telemetry(player.Name) + " (" + answer + ")";
 		}

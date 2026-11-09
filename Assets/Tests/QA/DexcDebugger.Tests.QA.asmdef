@@ -3,9 +3,7 @@
   "rootNamespace": "DexcDebugger.Tests.QA",
   "references": [
     "Dexc.QA",
-    "Dexc.Telemetry",
-    "Dexc.Runtime",
-    "DexcDebugger.Tests.Runtime"
+    "Dexc.Telemetry"
   ],
   "includePlatforms": [
     "Editor"

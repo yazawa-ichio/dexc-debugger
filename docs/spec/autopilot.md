@@ -204,7 +204,8 @@ Botは`Common`と`Builds/<name>`を合わせ、ビルドごとにそのビルド
 - `ws start`は`-dexc-telemetry-directory .state/<name>/telemetry`と、`-dexc-telemetry-resource`で`dexc.build`、`vcs.ref.head.revision`、`dexc.seed`を渡す。同じ製品のビルドは`persistentDataPath`を共有するので、フォルダーを分ける
 - `ws telemetry start|capture|pull|stop`は、evalで`DexcTelemetry`を呼ぶ。`pull`は`Seal`の後、閉じたファイル（`.otlp`と`capture-*.raw`）を`Telemetry/<name>`へ移す。テレメトリーのPullの規格に従う
 - link.xmlは、ビルドに`Dexc.Telemetry`があれば丸ごと残す。evalからだけ呼ぶAPIがストリップされないためである
-- `ws telemetry start --upload`は、ダッシュボードが動いているときに、書き出しと送信を5秒ごとにして、`DexcTelemetry.StartUpload`でダッシュボードへ送らせる
+- `ws telemetry start --upload`は、書き出しと送信を5秒ごとにして、`DexcTelemetry.StartUpload`で送らせる。送り先は既定で動いているダッシュボード、`--endpoint <url>`で後から立てたcollectorなどのOTLP/HTTPのサーバーである。テレメトリーが既に動いていれば、送信だけを付ける
+- `ws telemetry pull`は、送信中のPlayerからはファイルを取らない。送信は送った後にファイルを消すので、取ると競うためである。送信中かはevalで`DexcTelemetry.IsUploading`を見る
 
 ### 不具合
 

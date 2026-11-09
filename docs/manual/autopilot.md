@@ -283,7 +283,7 @@ Dexc.Autopilot.Compiler ws telemetry pull
 
 | コマンド | 内容 |
 | --- | --- |
-| `ws telemetry start` | 動いていなければ`DexcTelemetry.Start()`を呼びます。`--watch a,b`で`DexcTelemetry.Watch`も呼びます。`--upload`で、5秒ごとにダッシュボードへ送らせます |
+| `ws telemetry start` | 動いていなければ`DexcTelemetry.Start()`を呼びます。`--watch a,b`で`DexcTelemetry.Watch`も呼びます。`--upload`で、5秒ごとにダッシュボードへ送らせます。`--endpoint <url>`で、後から立てたcollectorなどへ送れます。送信中のビルドは`pull`の対象になりません |
 | `ws telemetry capture <frames>` | 全ビルドで同時にキャプチャを始めます。`--profiler`で、Development BuildならUnity Profilerの`.raw`も書きます |
 | `ws telemetry pull` | `DexcTelemetry.Seal()`で今のファイルを閉じさせ、閉じたファイルを`Telemetry/<name>`へ移します |
 | `ws telemetry stop` | `DexcTelemetry.Stop()`を呼び、ファイルを移します |

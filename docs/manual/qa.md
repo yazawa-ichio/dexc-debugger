@@ -5,7 +5,7 @@
 | 層 | 誰のものか | 中身 |
 | --- | --- | --- |
 | 提供 | Dexc Telemetry（リリースにも残せます） | 注釈、ロード、ヒッチ、場所の受け口、分布の指標 |
-| 補助 | Dexc QA（開発用）、ワークスペースの道具とダッシュボード | 不具合の記録、まとめ、確認の再実行、予算、画面 |
+| 補助 | Dexc QA（開発用）、Dexc Bridge（開発用）、ワークスペースの道具とダッシュボード | 不具合の記録、Dexcとの連携、まとめ、確認の再実行、予算、画面 |
 | 拡張 | ゲーム、Bot、ワークスペース | 注釈の値、ロードの始まりと終わり、場所、Botの検査、報告に足す項目、外部への送信、予算の値、地図 |
 
 細かな決まりは[Telemetryの仕様](../spec/telemetry.md)、[QAの仕様](../spec/qa.md)、[Autopilotの仕様](../spec/autopilot.md)にあります。
@@ -76,7 +76,7 @@ DexcQA.AddSink(new MyIssueTrackerSink()); // 書いた後に呼ばれます
 
 例外とエラーのログは、何もしなくても報告になります。同じ不具合は3件まで詳しく書き、あとは数えます。
 
-Dexc InspectorでWatchに入れたfieldは、その時の値が報告に載ります（`DexcQAOptions.InspectorWatches`、既定は有効）。調べたい値をWatchに入れておくと、不具合の報告で値の移り変わりを追えます。
+Dexc Bridge（`jp.yazawa-ichio.dexc-bridge`）を入れると、Dexc InspectorでWatchに入れたfieldの値と、DexcのDiagnosticsが報告に載ります。調べたい値をWatchに入れておくと、不具合の報告で値の移り変わりを追えます。Bridgeは、DexcのメニューにTelemetryのパネル（キャプチャ、Seal、後からの送信の開始）も足します。
 
 ### Botの検査
 

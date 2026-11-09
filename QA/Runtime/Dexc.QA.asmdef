@@ -2,7 +2,6 @@
   "name": "Dexc.QA",
   "rootNamespace": "Dexc.QA",
   "references": [
-    "Dexc.Runtime",
     "Dexc.Telemetry"
   ],
   "includePlatforms": [],
