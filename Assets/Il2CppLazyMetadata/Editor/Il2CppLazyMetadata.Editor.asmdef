@@ -1,0 +1,16 @@
+{
+  "name": "Il2CppLazyMetadata.Editor",
+  "rootNamespace": "Il2CppLazy",
+  "references": [],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
