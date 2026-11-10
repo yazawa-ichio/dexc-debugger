@@ -238,6 +238,7 @@ using (var span = tracer.Start("stage.load"))
 - `TelemetrySpan`は構造体のハンドルで、固定のスロットを指す。開始、属性、終了は確保しない。スロットは256個で、最初のspanのときに作る。空きが無ければ何もしないspanを返し、`dexc.telemetry.spans.dropped`で数える
 - 親子関係は`TelemetryContext`を明示して渡す。awaitをまたいでも、そのまま渡せる
 - `TelemetryOptions.AmbientContext`を有効にすると、`AsyncLocal`で親を引き継ぐ。明示した親のほうを優先する。IL2CPPでは設定と解除に1.1〜1.4µsと519Bかかるので、既定は無効である
+- UniTaskのawaitでは`AmbientContext`は働かない。UniTaskのビルダーはExecutionContextを引き継がず、状態機械の`MoveNext`を直接呼ぶので、並んで動く流れのあいだで親が漏れる（2.5.10で確認）。UniTaskでは親を明示して渡す
 - `logger.WithContext(context)`で、ログに`trace_id`と`span_id`を付ける。`AmbientContext`が有効なら自動で付く
 - spanの開始はmain threadだけである。属性、エラー、終了は、`ConfigureAwait(false)`などで別スレッドへ移った継続からも呼べる。1つのspanを同時に複数のスレッドから触るのは対象外である
 - main threadでの終了は、その場でエンコードする。別スレッドでの終了は、終了の時刻を記録してスロットの番号をロック付きのキューへ入れるだけにし、次のフレームにmain threadでエンコードする。キューは開いているspan1つにつき1件までなので、スロット数で足りて溢れない
