@@ -55,8 +55,9 @@ namespace Dexc.Telemetry
 			m_Metrics = metrics;
 			m_Annotations = metrics.Annotations;
 			m_LoadFrames = metrics.Counter("dexc.load.frames", "{frame}");
-			// 16.7 and 700 bound the slow and the frozen frames of Android vitals and Firebase.
-			var frameBounds = new[] { 4, 8, 11.2, 16.7, 20, 25, 33.4, 50, 66.7, 100, 250, 700, 1000 };
+			// 16.7 and 700 bound the slow and the frozen frames of Android vitals and Firebase. The bounds below 4 keep the
+			// quantiles of light frames from spreading over a wide first bucket.
+			var frameBounds = new[] { 1, 2, 3, 4, 8, 11.2, 16.7, 20, 25, 33.4, 50, 66.7, 100, 250, 700, 1000 };
 			var costBounds = new[] { 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10 };
 			m_FrameTime = metrics.Histogram("unity.frame.time", "ms", frameBounds);
 			m_MainThreadTime = metrics.Histogram("unity.frame.main_thread.time", "ms", frameBounds);

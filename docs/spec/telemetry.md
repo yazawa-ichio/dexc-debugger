@@ -123,6 +123,7 @@ Logsと、MetricsおよびTracesは、別々のレベルを持つ。ログの`Tr
 | `dexc.telemetry.export.size` | By | フレームのサイズ | 次の書き出し | Basic | 取れる |
 
 - 表はWindowsのIL2CPP（Stripping High）で確認した結果である。Androidは未確認である
+- `unity.frame.time`と`unity.frame.main_thread.time`の境界は、1、2、3、4、8、11.2、16.7、20、25、33.4、50、66.7、100、250、700、1000msとする。16.7と700は、Android vitalsとFirebaseの遅いフレームと止まったフレームの境である。4より下の境界は、軽いフレームの分位数が広い最初のバケットに散らないためにある
 - 取れない指標は書かない。0とは書かない。最初のフレームの前のメモリも同じである
 - メモリは書き出し時の値である。区間の最大値は持たない
 
