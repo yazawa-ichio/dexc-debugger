@@ -293,6 +293,41 @@ namespace DexcDebugger.Tests.Telemetry
 			Assert.That(thread, Is.Not.Null);
 		}
 
+		[Test]
+		public void CallsOpenAtOnceOnOtherThreadsHaveNoCap()
+		{
+			// More than the fixed table keeps, ended over two frames so the queue of ended calls holds them.
+			const int Count = 1030;
+			var probes = new TelemetryMethodProbe[Count];
+			var frame = 0;
+			var spans = Captured(() =>
+			{
+				Task.Run(() =>
+				{
+					if (frame++ == 0)
+					{
+						for (var i = 0; i < Count; i++)
+						{
+							probes[i] = TelemetryMethodProbe.Enter("Tests", "Probe.Many", TelemetryDetail.Detailed, 1, 2 * Count, true);
+						}
+						for (var i = Count - 1; i >= 30; i--)
+						{
+							probes[i].Exit();
+						}
+					}
+					else
+					{
+						for (var i = 0; i < 30; i++)
+						{
+							probes[i].Exit();
+						}
+					}
+				}).Wait();
+			}, 2);
+
+			Assert.That(spans.Count(span => Name(span) == "Probe.Many"), Is.EqualTo(Count));
+		}
+
 		static IEnumerator Wait(Task task)
 		{
 			while (!task.IsCompleted)

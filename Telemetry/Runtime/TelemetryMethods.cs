@@ -24,8 +24,11 @@ namespace Dexc.Telemetry
 		const int SlotMask = (1 << SlotBits) - 1;
 		const int GenerationMask = int.MaxValue >> SlotBits;
 
-		/// <summary>The calls open at once on other threads.</summary>
-		const int OtherCapacity = 256;
+		/// <summary>
+		/// The calls open at once on other threads that a fixed table keeps. Past it a dictionary keeps them, which allocates
+		/// but has no cap.
+		/// </summary>
+		const int OtherCapacity = 1024;
 
 		/// <summary>A call on another thread, from its start to its end.</summary>
 		struct OtherStart
@@ -42,6 +45,8 @@ namespace Dexc.Telemetry
 		OtherStart[] m_OtherStarts;
 		int[] m_OtherFree;
 		int m_OtherFreeCount;
+		Dictionary<int, OtherStart> m_OtherOverflow;
+		int m_OtherOverflowNext;
 		const long AllocationsByRecorder = -2;
 
 		sealed class Calls
@@ -319,9 +324,16 @@ namespace Dexc.Telemetry
 			lock (m_Lock)
 			{
 				var slot = -token - 1;
-				start = m_OtherStarts[slot];
-				m_OtherStarts[slot] = default;
-				m_OtherFree[m_OtherFreeCount++] = slot;
+				if (slot < OtherCapacity)
+				{
+					start = m_OtherStarts[slot];
+					m_OtherStarts[slot] = default;
+					m_OtherFree[m_OtherFreeCount++] = slot;
+				}
+				else
+				{
+					m_OtherOverflow.Remove(slot, out start);
+				}
 			}
 			ExitOtherThread(start.Scope, start.Name, start.StartTicks);
 		}
@@ -448,16 +460,29 @@ namespace Dexc.Telemetry
 					}
 					m_OtherFreeCount = OtherCapacity;
 				}
-				if (m_OtherFreeCount == 0)
+				var start = new OtherStart { Scope = scope, Name = name, StartTicks = startTicks };
+				if (m_OtherFreeCount > 0)
 				{
-					// Too many calls open at once on other threads: counted as dropped.
-					m_OtherDropped++;
-					m_Pending++;
-					return default;
+					var slot = m_OtherFree[--m_OtherFreeCount];
+					m_OtherStarts[slot] = start;
+					return new TelemetryMethodProbe(this, -slot - 1);
 				}
-				var slot = m_OtherFree[--m_OtherFreeCount];
-				m_OtherStarts[slot] = new OtherStart { Scope = scope, Name = name, StartTicks = startTicks };
-				return new TelemetryMethodProbe(this, -slot - 1);
+				return new TelemetryMethodProbe(this, -OpenOverflow(start) - 1);
+			}
+		}
+
+		/// <summary>Keeps a call past the fixed table, by a key from the capacity up that no open call holds.</summary>
+		int OpenOverflow(OtherStart start)
+		{
+			m_OtherOverflow ??= new Dictionary<int, OtherStart>();
+			while (true)
+			{
+				var key = OtherCapacity + m_OtherOverflowNext;
+				m_OtherOverflowNext = m_OtherOverflowNext == int.MaxValue - OtherCapacity ? 0 : m_OtherOverflowNext + 1;
+				if (m_OtherOverflow.TryAdd(key, start))
+				{
+					return key;
+				}
 			}
 		}
 

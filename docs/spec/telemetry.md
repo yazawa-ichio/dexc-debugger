@@ -440,7 +440,7 @@ sealed class Stage { }
 - キャプチャの外では、`Enter`はrootを作らずに読み、空のプローブを返す。テレメトリーを使わないゲームにrootを作らせないためである
 - spanの名前は`名前空間.型.メソッド`、Scopeはアセンブリの名前である。親は、計測中のメソッドの中から呼ばれればそのspan、無ければキャプチャのフレームのspanである
 - `Every`でN回に1回に間引く。記録したspanには`dexc.method.every`を付ける。`PerFrame`（既定32）は1フレームに記録する上限である。間引いた呼び出しは`dexc.telemetry.method_calls.skipped`、上限やキューで落とした呼び出しは`dexc.telemetry.method_calls.dropped`で数える
-- 既定ではmain threadの呼び出しだけを記録する。`AnyThread`を有効にすると、ほかのスレッドの呼び出しも記録する。終わった呼び出しをロック付きのキュー（1024件）へ入れ、次のフレームにmain threadで書く。親はその時のフレームのspanで、`thread.id`を付ける
+- 既定ではmain threadの呼び出しだけを記録する。`AnyThread`を有効にすると、ほかのスレッドの呼び出しも記録する。終わった呼び出しをロック付きのキュー（1024件）へ入れ、次のフレームにmain threadで書く。開いている呼び出しは、プローブを小さく保つためにrootが持つ。1024件までは固定の表に、超えた分は辞書に置く。辞書は確保するが、上限は無い。親はその時のフレームのspanで、`thread.id`を付ける
 - asyncのメソッドは、最初の呼び出しから完了までを1つのspanにする。状態機械に`<>dexc__probe`の欄を足し、メソッドが状態機械を始める前に`TelemetryMethodProbe.EnterAsync`で設定し、状態機械がビルダーの`SetResult`と`SetException`を呼ぶ直前に終える。`Task`、UniTask、`Awaitable`のどれもビルダーがこの2つを持つので、同じに扱える
 - asyncのspanは、その間の呼び出しの親にならない。最初のawaitで呼び出し元へ戻ると、関係の無い呼び出しが続くためである。別スレッドで完了したときは、spanの終了と同じくキューを通して次のフレームに書く
 - asyncのメソッドの行は状態機械の`MoveNext`にあるので、シンボルを読むファイルはそこから決める
