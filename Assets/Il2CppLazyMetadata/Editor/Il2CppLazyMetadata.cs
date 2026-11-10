@@ -81,15 +81,15 @@ namespace Il2CppLazy
 				// 1. Initialization no longer inflates the members of a generic instance.
 				(
 					"        SetupMethodsLocked(klass, lock);\n        SetupTypeHierarchyLocked(klass, lock);",
-					"        // GM: the methods of a generic instance are inflated when something asks for them.\n"
-					+ "        const bool gmLazy = klass->generic_class != NULL;\n"
-					+ "        if (!gmLazy)\n"
+					"        // Lazy metadata: the methods of a generic instance are inflated when something asks for them.\n"
+					+ "        const bool lazyMembers = klass->generic_class != NULL;\n"
+					+ "        if (!lazyMembers)\n"
 					+ "            SetupMethodsLocked(klass, lock);\n"
 					+ "        SetupTypeHierarchyLocked(klass, lock);"
 				),
 				(
 					"        SetupEventsLocked(klass, lock);\n        SetupPropertiesLocked(klass, lock);\n        SetupNestedTypesLocked(klass, lock);",
-					"        if (!gmLazy)\n        {\n            SetupEventsLocked(klass, lock);\n            SetupPropertiesLocked(klass, lock);\n        }\n"
+					"        if (!lazyMembers)\n        {\n            SetupEventsLocked(klass, lock);\n            SetupPropertiesLocked(klass, lock);\n        }\n"
 					+ "        SetupNestedTypesLocked(klass, lock);"
 				),
 				// 2. A lookup by name (the static constructor, a delegate's Invoke) finds the method in the definition
@@ -180,7 +180,7 @@ namespace Il2CppLazy
 				(
 					"        static Il2CppRGCTXData* InflateRGCTXLocked(const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, const il2cpp::os::FastAutoLock& lock);",
 					"        static Il2CppRGCTXData* InflateRGCTXLocked(const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, const il2cpp::os::FastAutoLock& lock);\n"
-					+ "        // GM: one entry of an rgctx, resolved when it is first read.\n"
+					+ "        // Lazy metadata: one entry of an rgctx, resolved when it is first read.\n"
 					+ "        static const Il2CppRGCTXData* ResolveRGCTXEntry(const Il2CppRGCTXData* data, int32_t index);\n"
 					+ "        static void ResolveRGCTXEntryLocked(Il2CppRGCTXData* slot, const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, int32_t rgctxIndex, const il2cpp::os::FastAutoLock& lock);"
 				),
@@ -209,8 +209,8 @@ namespace Il2CppLazy
 				),
 				(
 					"namespace il2cpp\n{\nnamespace metadata\n{\n    const Il2CppType** GenericMetadata::InflateParameters(",
-					"// GM: what the generated code calls when it reads an entry that is still empty.\n"
-					+ "const Il2CppRGCTXData* il2cpp_gm_rgctx_resolve(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
+					"// Lazy metadata: what the generated code calls when it reads an entry that is still empty.\n"
+					+ "const Il2CppRGCTXData* il2cpp_lazy_rgctx_resolve(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
 					+ "    return il2cpp::metadata::GenericMetadata::ResolveRGCTXEntry(rgctxVar, index);\n}\n\n"
 					+ "namespace il2cpp\n{\nnamespace metadata\n{\n    const Il2CppType** GenericMetadata::InflateParameters("
 				),
@@ -227,20 +227,20 @@ namespace Il2CppLazy
 					+ "inline const MethodInfo* il2cpp_rgctx_method(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
 					+ "    return rgctxVar[index].method;\n}",
 					"// generic sharing\n"
-					+ "// GM: an entry that is still empty is resolved by the runtime when it is read.\n"
-					+ "const Il2CppRGCTXData* il2cpp_gm_rgctx_resolve(const Il2CppRGCTXData* rgctxVar, int32_t index);\n\n"
-					+ "inline const Il2CppRGCTXData* il2cpp_gm_rgctx_entry(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
+					+ "// Lazy metadata: an entry that is still empty is resolved by the runtime when it is read.\n"
+					+ "const Il2CppRGCTXData* il2cpp_lazy_rgctx_resolve(const Il2CppRGCTXData* rgctxVar, int32_t index);\n\n"
+					+ "inline const Il2CppRGCTXData* il2cpp_lazy_rgctx_entry(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
 					+ "    if (rgctxVar[index].rgctxDataDummy == NULL)\n"
-					+ "        il2cpp_gm_rgctx_resolve(rgctxVar, index);\n"
+					+ "        il2cpp_lazy_rgctx_resolve(rgctxVar, index);\n"
 					+ "    return rgctxVar + index;\n}\n\n"
 					+ "inline RuntimeClass* il2cpp_rgctx_data(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return InitializedTypeInfo(il2cpp_gm_rgctx_entry(rgctxVar, index)->klass);\n}\n\n"
+					+ "    return InitializedTypeInfo(il2cpp_lazy_rgctx_entry(rgctxVar, index)->klass);\n}\n\n"
 					+ "inline RuntimeClass* il2cpp_rgctx_data_no_init(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return il2cpp_gm_rgctx_entry(rgctxVar, index)->klass;\n}\n\n"
+					+ "    return il2cpp_lazy_rgctx_entry(rgctxVar, index)->klass;\n}\n\n"
 					+ "inline const Il2CppType* il2cpp_rgctx_type(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return il2cpp_gm_rgctx_entry(rgctxVar, index)->type;\n}\n\n"
+					+ "    return il2cpp_lazy_rgctx_entry(rgctxVar, index)->type;\n}\n\n"
 					+ "inline const MethodInfo* il2cpp_rgctx_method(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return il2cpp_gm_rgctx_entry(rgctxVar, index)->method;\n}"
+					+ "    return il2cpp_lazy_rgctx_entry(rgctxVar, index)->method;\n}"
 				),
 			});
 		}
@@ -250,7 +250,7 @@ namespace Il2CppLazy
 		static string RgctxBody()
 		{
 			var empty =
-				"            // GM: three slots ahead of the entries say where they come from, and the entries stay empty until read.\n"
+				"            // Lazy metadata: three slots ahead of the entries say where they come from, and the entries stay empty until read.\n"
 				+ "            Il2CppRGCTXData* block = (Il2CppRGCTXData*)MetadataCalloc(collection.count + 3, sizeof(Il2CppRGCTXData));\n"
 				+ "            block[0].rgctxDataDummy = (void*)image;\n"
 				+ "            block[1].rgctxDataDummy = (void*)(uintptr_t)token;\n"
@@ -264,7 +264,7 @@ namespace Il2CppLazy
 				+ "        Il2CppRGCTXData* values = const_cast<Il2CppRGCTXData*>(data);\n"
 				+ "        if (values[index].rgctxDataDummy == NULL)\n"
 				+ "        {\n"
-				+ "            // GM: the readers take no lock, so the entry is resolved aside and shown to them only once it is complete,\n"
+				+ "            // Lazy metadata: the readers take no lock, so the entry is resolved aside and shown to them only once it is complete,\n"
 				+ "            // the way GenericClass::CreateClass shows a class.\n"
 				+ "            Il2CppRGCTXData resolved;\n"
 				+ "            resolved.rgctxDataDummy = NULL;\n"
