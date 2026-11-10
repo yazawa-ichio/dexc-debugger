@@ -1,0 +1,21 @@
+{
+  "name": "Unity.UniTaskStateMachinePool.CodeGen",
+  "rootNamespace": "UniTaskStateMachinePool.CodeGen",
+  "references": [],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Mono.Cecil.dll",
+    "Mono.Cecil.Rocks.dll",
+    "Mono.Cecil.Pdb.dll",
+    "Mono.Cecil.Mdb.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": true
+}
