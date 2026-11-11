@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>9.0</LangVersion>
+    <RootNamespace>GenericMemoryWeaverHost</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The weaver itself is the one the Editor builds with. A copy under src, if there is one, is left out. -->
+    <Compile Remove="src/**" />
+    <Compile Include="../../../Assets/Tests/GenericMemory/Editor/GenericMemoryWeaver.cs" Link="Weaver/GenericMemoryWeaver.cs" />
+    <Compile Include="../../../Assets/Tests/GenericMemory/Editor/Canonicalizer.cs" Link="Weaver/Canonicalizer.cs" />
+    <Compile Include="../../../Assets/Tests/GenericMemory/Editor/AsyncEraser.cs" Link="Weaver/AsyncEraser.cs" />
+  </ItemGroup>
+</Project>

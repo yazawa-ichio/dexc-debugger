@@ -27,3 +27,17 @@ Telemetry/Tools~/**/obj/
 /Assets/InitTestScene*.unity.meta
 /Assets/Resources/
 /Assets/Resources.meta
+
+# IL2CPP のジェネリックのメモリの検証（tools/il2cpp-generic-memory）
+!tools/il2cpp-generic-memory/Census/*.csproj
+tools/il2cpp-generic-memory/Census/bin/
+tools/il2cpp-generic-memory/Census/obj/
+!tools/il2cpp-generic-memory/WeaverHost/*.csproj
+tools/il2cpp-generic-memory/WeaverHost/bin/
+tools/il2cpp-generic-memory/WeaverHost/obj/
+tools/il2cpp-generic-memory/WeaverHost/src/
+# 計測の生の結果は入れない。数値は README の表にある
+tools/il2cpp-generic-memory/results/
+# generate.py が書くシナリオのコード
+/Assets/Tests/GenericMemory/Scenario/Generated/
+/Assets/Tests/GenericMemory/Scenario/Generated.meta

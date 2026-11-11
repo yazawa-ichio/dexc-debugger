@@ -1,0 +1,21 @@
+{
+  "name": "DexcDebugger.GenericMemory.Editor",
+  "rootNamespace": "GenericMemory.Editor",
+  "references": [
+    "Il2CppLazyMetadata.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Mono.Cecil.dll",
+    "Mono.Cecil.Rocks.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
