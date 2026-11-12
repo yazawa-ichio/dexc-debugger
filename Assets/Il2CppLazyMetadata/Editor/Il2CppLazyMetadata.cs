@@ -269,7 +269,19 @@ namespace Il2CppLazy
 			Edit(Path.Combine(lib, "vm", "GenericClass.cpp"),
 				Before("        genericInstanceType->methods = methods;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"),
 				Before("        genericInstanceType->properties = properties;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"),
-				Before("        genericInstanceType->events = events;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"));
+				Before("        genericInstanceType->events = events;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"),
+				// The fields of a generic instance are not made late, but they were shown the same way: the class pointed at
+				// the table right after the last field was written. Whoever lists the members of a type while another thread
+				// first uses it reads the table without the lock. On a processor that does not keep the order of writes
+				// (ARM64) it then found a field whose token, the last thing written, was not there yet.
+				Before("        genericInstanceType->fields = fields;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"));
+
+			// The same for the flag that says the fields of a class are laid out, which a reader tests without the lock:
+			// the original sets it here, ahead of the barrier it has at the end of the setup of the fields.
+			Edit(Path.Combine(lib, "vm", "Class.cpp"),
+				Before(
+					"            klass->size_inited = true;\n\n            il2cpp::metadata::FieldLayout::LayoutStaticFields(klass, staticLayoutData);\n",
+					"            il2cpp::os::Atomic::FullMemoryBarrier();\n"));
 
 			// A named argument of an attribute reads the property out of the table of the class that declares it.
 			Edit(Path.Combine(lib, "metadata", "CustomAttributeDataReader.cpp"),
