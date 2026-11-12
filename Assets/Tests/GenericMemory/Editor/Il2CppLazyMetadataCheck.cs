@@ -31,6 +31,7 @@ namespace GenericMemory.Editor
 		{
 			"vm/Il2CppLazyMetadata.h",
 			"vm/Il2CppLazyInterfaces.h",
+			"vm/Il2CppCastCache.h",
 		};
 
 		/// <summary><paramref name="measured"/> is the il2cpp folder the bench was built from, or null to skip the comparison.</summary>

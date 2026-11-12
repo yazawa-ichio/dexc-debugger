@@ -7,11 +7,12 @@ when its result file is written and closed. A Player whose libil2cpp has the swi
 usage: m-run.py measure <label> <set> [<result name>]          results/<result name> (default <label>-<set>), must be new
        m-run.py checks <label> <mode> <set>...                  results/checks/<label>.<mode>.<set>.txt
        m-run.py repeat <label> <mode> <set> <runs> <name>       results/checks/<name>/<set>.<run>.txt, <name> must be new
-  <set>   the digits of the lazy switches: methods, rgctx, interface slots, interface classes, then GENERIC_MEMORY_LAZY_MORE
+  <set>   the digits of the switches: lazy methods, lazy rgctx, lazy interface slots, lazy interface classes, then
+          GENERIC_MEMORY_LAZY_MORE, whose first digit is the cast cache of the speed branch
   <mode>  checks, reflection, interfaces, comparers or sharing
   GENERIC_MEMORY_PATTERNS="A B"   the patterns of measure (by default the 16 of the reference results)
   M_RUN_WAIT=1                    waits for every process to be gone and reports its exit code (the normal way to quit)
-Labels and names start with m-.
+Labels and names start with m- (the combined memory checks) or s- (the speed branch).
 """
 import os
 import re
@@ -86,8 +87,8 @@ def run(label, switches, arguments, output, limit, counters):
 
 
 def own(name):
-    if not name.startswith("m-"):
-        sys.exit("not one of the combined check's names: " + name)
+    if not name.startswith(("m-", "s-")):
+        sys.exit("a label or a name here starts with m- or s-: " + name)
 
 
 def lines_of(path):

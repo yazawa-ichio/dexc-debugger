@@ -56,6 +56,8 @@ namespace generic_memory
         int lazyInterfaceClasses;
         // Read once from the environment: one digit for each further switch, which the source that uses it names.
         char lazyMore[16];
+        // The first of those digits: 1 lets the runtime remember the answers of its casts to interfaces (Il2CppCastCache.h).
+        int castCache;
         // How often each branch of the lazy code was taken, by the name the branch gives itself.
         enum { kMaxBranches = 48 };
         const char* branchNames[kMaxBranches];
@@ -82,6 +84,7 @@ namespace generic_memory
             const char* more = getenv("GENERIC_MEMORY_LAZY_MORE");
             if (more != NULL)
                 strncpy(created->lazyMore, more, sizeof(created->lazyMore) - 1);
+            created->castCache = created->lazyMore[0] == '1';
             const char* branchLog = getenv("GENERIC_MEMORY_BRANCH_LOG");
             if (branchLog != NULL && branchLog[0] != 0)
                 created->branchLog = fopen(branchLog, "a");
@@ -108,6 +111,11 @@ namespace generic_memory
     inline bool LazyInterfaceClasses()
     {
         return state().lazyInterfaceClasses != 0;
+    }
+
+    inline bool CastCache()
+    {
+        return state().castCache != 0;
     }
 
     // The switch at a place of GENERIC_MEMORY_LAZY_MORE, counted from 0. Off when the variable is shorter.

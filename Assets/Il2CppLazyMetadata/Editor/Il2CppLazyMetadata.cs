@@ -21,12 +21,17 @@ namespace Il2CppLazy
 	/// the lines into the sources of libil2cpp that call into them. Each of them names the text it expects, and the
 	/// build stops when that text is not there.
 	///
-	/// Set the environment variable IL2CPP_LAZY_METADATA=0 to build without it.
+	/// Il2CppCastCache.h is for speed, not for memory: the runtime remembers the answers of the two searches behind a
+	/// cast to an interface and a call through a variant interface, which the changes above make somewhat slower.
+	///
+	/// Set the environment variable IL2CPP_LAZY_METADATA=0 to build without any of it, and IL2CPP_CAST_CACHE=0 to build
+	/// with everything but the cast cache.
 	/// </summary>
 	public sealed class Il2CppLazyMetadata : IPostprocessBuildWithReport
 	{
 		const string Header = "Il2CppLazyMetadata.h";
 		const string InterfacesHeader = "Il2CppLazyInterfaces.h";
+		const string CastCacheHeader = "Il2CppCastCache.h";
 
 		public int callbackOrder => 1000;
 
@@ -47,7 +52,7 @@ namespace Il2CppLazy
 			}
 			try
 			{
-				Apply(root);
+				Apply(root, false, Environment.GetEnvironmentVariable("IL2CPP_CAST_CACHE") != "0");
 			}
 			catch (InvalidOperationException exception)
 			{
@@ -80,12 +85,15 @@ namespace Il2CppLazy
 		/// (GENERIC_MEMORY_LAZY_METHODS=1, GENERIC_MEMORY_LAZY_RGCTX=1, GENERIC_MEMORY_LAZY_INTERFACES=1,
 		/// GENERIC_MEMORY_LAZY_INTERFACE_CLASSES=1). That form is for measuring: it needs the counters of the generic-memory
 		/// bench in the same folder, and one Player built with it runs with and without each change.
+		/// Without <paramref name="castCache"/> the lines of the cast cache are still put in, and compile to nothing: so
+		/// a folder that was changed before follows the choice of the build that changes it again.
 		/// </summary>
-		public static void Apply(string root, bool switched = false)
+		public static void Apply(string root, bool switched = false, bool castCache = true)
 		{
 			var lib = Path.Combine(root, "libil2cpp");
-			CopyHeader(lib, Header, switched);
-			CopyHeader(lib, InterfacesHeader, false);
+			CopyHeader(lib, Header, switched ? "#define IL2CPP_LAZY_METADATA_SWITCHED 1\n" : "");
+			CopyHeader(lib, InterfacesHeader, "");
+			CopyHeader(lib, CastCacheHeader, castCache ? "" : "#define IL2CPP_CAST_CACHE_OFF 1\n");
 
 			// A source that calls into Il2CppLazyInterfaces.h includes it itself, whatever else it is compiled together with.
 			const string interfaces = "#include \"vm/" + InterfacesHeader + "\"\n";
@@ -306,18 +314,69 @@ namespace Il2CppLazy
 					"    return pThis->klass->vtable[slot].method;\n",
 					"    const RuntimeMethod* slotMethod = pThis->klass->vtable[slot].method;\n"
 					+ "    return slotMethod != NULL ? slotMethod : il2cpp_lazy_interface_slot(pThis->klass, slot);\n"));
+
+			// The cast cache (Il2CppCastCache.h). These changes are made to the sources as the changes above leave them.
+			const string castCacheInclude = "#include \"vm/" + CastCacheHeader + "\"\n";
+
+			// A cast to an interface. The part of Class::IsAssignableFrom that searches the interfaces of the class becomes a
+			// function of its own, whose answer is remembered. What is asked before it (the same class, a class on the left)
+			// stays ahead of the table, and so does the initialization of both classes.
+			Edit(Path.Combine(lib, "vm", "Class.cpp"),
+				// Behind the two includes at the top, which the change that put them there has to find together.
+				After("#include \"vm/" + Header + "\"\n" + interfaces, castCacheInclude),
+				Before(
+					"    bool Class::IsAssignableFrom(Il2CppClass *klass, Il2CppClass *oklass)\n    {\n        // Cast to original class - fast path\n",
+					"    static CastCache s_AssignableToInterface;\n"
+					+ "    static bool SearchInterfaces(Il2CppClass* klass, Il2CppClass* oklass);\n\n"),
+				Before(
+					"        if (klass->generic_class != NULL)\n        {\n            // checking for simple reference equality is not enough",
+					"        intptr_t castAnswer;\n"
+					+ "        const bool castCached = IL2CPP_CAST_CACHE();\n"
+					+ "        if (castCached && s_AssignableToInterface.TryGet(klass, oklass, &castAnswer))\n"
+					+ "            return castAnswer != 0;\n\n"
+					+ "        const bool castFound = SearchInterfaces(klass, oklass);\n"
+					+ "        if (castCached)\n"
+					+ "            s_AssignableToInterface.Set(klass, oklass, castFound ? 1 : 0);\n"
+					+ "        return castFound;\n"
+					+ "    }\n\n"
+					+ "    // The end of Class::IsAssignableFrom: whether a class, or one of its parents, implements the interface on the left.\n"
+					+ "    static bool SearchInterfaces(Il2CppClass* klass, Il2CppClass* oklass)\n"
+					+ "    {\n"),
+				// That end is no longer inside a member of Class.
+				Swap(
+					"                if (IsGenericClassAssignableFrom(klass, iter, oklass))\n                    return true;\n\n"
+					+ "                for (uint16_t i = 0; i < iter->interfaces_count; ++i)\n",
+					"                if (Class::IsGenericClassAssignableFrom(klass, iter, oklass))\n                    return true;\n\n"
+					+ "                for (uint16_t i = 0; i < iter->interfaces_count; ++i)\n"));
+
+			// A call through a generic interface that the inlined lookup did not find. Where the class has the slots of an
+			// interface it implements by variance is remembered once the search has found it, and by then they are filled.
+			Edit(Path.Combine(lib, "vm", "ClassInlines.cpp"),
+				After(interfaces, castCacheInclude),
+				Swap(
+					"    const VirtualInvokeData* ClassInlines::GetInterfaceInvokeDataFromVTableSlowPath(const Il2CppClass* klass, const Il2CppClass* itf, Il2CppMethodSlot slot)\n"
+					+ "    {\n"
+					+ "        if (const VirtualInvokeData* exact = LazyInterfaces::ExactInvokeData(klass, itf, slot))\n",
+					"    static CastCache s_SlotsByVariance;\n\n"
+					+ "    const VirtualInvokeData* ClassInlines::GetInterfaceInvokeDataFromVTableSlowPath(const Il2CppClass* klass, const Il2CppClass* itf, Il2CppMethodSlot slot)\n"
+					+ "    {\n"
+					+ "        intptr_t varianceOffset;\n"
+					+ "        const bool varianceCached = itf->generic_class != NULL && IL2CPP_CAST_CACHE();\n"
+					+ "        if (varianceCached && s_SlotsByVariance.TryGet(klass, itf, &varianceOffset))\n"
+					+ "            return &klass->vtable[varianceOffset + slot];\n\n"
+					+ "        if (const VirtualInvokeData* exact = LazyInterfaces::ExactInvokeData(klass, itf, slot))\n"),
+				Before(
+					"                    return &klass->vtable[pair->offset + slot];\n",
+					"                    if (varianceCached)\n"
+					+ "                        s_SlotsByVariance.Set(klass, itf, pair->offset);\n"));
 		}
 
-		/// <summary>Copies a header into libil2cpp/vm. The switched form is the same file with one line ahead of it.</summary>
-		static void CopyHeader(string lib, string header, bool switched)
+		/// <summary>Copies a header into libil2cpp/vm, with the line that chooses its form ahead of it, if it has one.</summary>
+		static void CopyHeader(string lib, string header, string ahead)
 		{
 			var folder = Path.GetDirectoryName(CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(typeof(Il2CppLazyMetadata).Assembly.GetName().Name));
 			var text = File.ReadAllText(Path.Combine(folder, "Native~", header)).Replace("\r\n", "\n");
-			if (switched)
-			{
-				text = "#define IL2CPP_LAZY_METADATA_SWITCHED 1\n" + text;
-			}
-			File.WriteAllText(Path.Combine(lib, "vm", header), text);
+			File.WriteAllText(Path.Combine(lib, "vm", header), ahead + text);
 		}
 
 		/// <summary>One change to a source of libil2cpp: the text that is there, what takes its place, and how often it occurs.</summary>

@@ -1,4 +1,4 @@
-"""m-bench.py: c-bench.py with the fourth digit of a set as the lazy interface classes (the fifth is the pair cache)
+"""m-bench.py: c-bench.py with the fourth digit of a set as the lazy interface classes (the rest is GENERIC_MEMORY_LAZY_MORE: its first digit is the cast cache)
 and result names that start with m-.
 
 Times built Players: the kernels of Bench.cs, InterfaceBench.cs and SpeedBench.cs, the first use of the types of a
@@ -85,7 +85,7 @@ def player_run(label, switches, limit, output, arguments):
     environment["GENERIC_MEMORY_LAZY_RGCTX"] = switches[1:2]
     environment["GENERIC_MEMORY_LAZY_INTERFACES"] = switches[2:3]
     environment["GENERIC_MEMORY_LAZY_INTERFACE_CLASSES"] = switches[3:4]
-    environment["GENERIC_MEMORY_PAIR_CACHE"] = switches[4:5]
+    environment["GENERIC_MEMORY_LAZY_MORE"] = switches[4:]
     wait_for_room()
     started = time.perf_counter()
     process = subprocess.Popen([player, "-batchmode", "-nographics"] + arguments + ["-generic-memory-output", output, "-logFile", output + ".log"],
@@ -114,7 +114,7 @@ def player_run(label, switches, limit, output, arguments):
 def main():
     name, runs = sys.argv[1], int(sys.argv[2])
     conditions = sys.argv[3:]
-    if not name.startswith("m-"):
+    if not name.startswith(("m-", "s-")):
         sys.exit("the result name starts with c-: " + name)
     modes = os.environ.get("C_BENCH_MODES", "kernels itf speed first start").split()
     patterns = os.environ.get("C_BENCH_FIRST", "ListUse DictUse UserClass LinqHeavy").split()
