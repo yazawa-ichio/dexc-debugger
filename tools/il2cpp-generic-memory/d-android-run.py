@@ -11,7 +11,8 @@ usage: d-android-run.py install <label>
        d-android-run.py uninstall <label>
   <label>  a folder of Logs/UnityTests/GenericMemory that d-android-build.sh made (it holds android.json: the application id)
   <mode>   checks, reflection, interfaces, comparers or sharing; race:<depth> is the race of the reflection checks alone,
-           9 * (depth + 1) levels of first uses in one run
+           9 * (depth + 1) levels of first uses in one run; propname:<threads> is the race of the class library's
+           cache of a property's name alone (ReflectionChecks.PropertyNameRace)
   GENERIC_MEMORY_PATTERNS="A B"   the patterns of measure (by default the 16 of the reference results)
   D_ANDROID_ARGS=file             hands the arguments over in a file of the app's folder, not in the intent
   D_ANDROID_LOAD=<n>:<seconds>    keeps n busy loops running in the device's shell during the runs, started again every
@@ -173,6 +174,8 @@ def arguments_of(mode):
     """race:<depth> is the race of the reflection checks alone, that many levels deep; any other mode is its own switch."""
     if mode.startswith("race:"):
         return ["-generic-memory-race", mode.split(":", 1)[1]]
+    if mode.startswith("propname:"):
+        return ["-generic-memory-propname", mode.split(":", 1)[1]]
     return ["-generic-memory-" + mode]
 
 

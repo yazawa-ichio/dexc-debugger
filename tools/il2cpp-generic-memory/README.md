@@ -113,6 +113,7 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 | `-generic-memory-checks`、`-generic-memory-reflection`、`-generic-memory-interfaces`、`-generic-memory-comparers`、`-generic-memory-sharing` | 上の検証を実行する（`checks` は `AsyncChecks`） |
 | `-generic-memory-bench`、`-generic-memory-interface-bench`、`-generic-memory-speed-bench` | 速度のカーネルを測る |
 | `-generic-memory-race <深さ>` | リフレクションの検証のうち、競合の検査だけを回す。型の木を `深さ` 段たどる（深さ 2 なら、1 回の実行で 117 回の競合）。失敗した時は、どの型のどの一覧が何個違ったかを書く |
+| `-generic-memory-propname <スレッド数>` | 読み込まれている全部の型のプロパティの名前を、その数のスレッドで同時に読み、`null` で返った数を書く（クラスライブラリのキャッシュの競合を見る） |
 | `-generic-memory-output <ファイル>` | 結果の書き出し先（必須） |
 
 Android では、引数はインテントの `unity` の追加情報（`am start -e unity "<引数>"`）か、アプリのフォルダの `generic-memory-args.txt` から読む。フルパスでない書き出し先は、アプリのフォルダ（`Application.persistentDataPath`）の下になる。
@@ -171,6 +172,9 @@ Android では、引数はインテントの `unity` の追加情報（`am start
 |---|---:|---|
 | パッチなし | 2 / 6,839 | 素の libil2cpp にある競合。内訳が取れた 1 回は、`List<T>` のインターフェースが 8 個中 1 個しか列挙されなかった。Windows でも PC に負荷をかけると 300 回の実行で 39 回失敗し、1 回クラッシュした |
 | 常時オン | 0 / 14,447 | |
-| 常時オン＋IL | 1 / 39,096 | **原因は分かっていない。**その時のビルドはハッシュしか残しておらず、内訳を出す診断を足してからは再現していない |
+| 常時オン＋IL | 5 / 200,673 | 5 回とも、プロパティの名前が一瞬 `null` で返ったもの（下の説明）。ランタイムの競合ではなかった。読み直して比べるようにしてからは 0 / 37,440 |
 
+- 常時オン＋IL の失敗は、クラスライブラリ（Mono の BCL）の `RuntimePropertyInfo` が原因だった。名前や getter をランタイムから取った結果を自分の中に持ち、取得済みの印を別のフィールドに立てるが、その間にロックもバリアもない。書いた順を保たない arm64 では、別のスレッドが印を先に見て、まだ `null` の名前を読むことがある。個数は同じで名前だけが違う一覧になり、失敗はどれもプロパティの一番多い `Dictionary<T,int>` で出ていた。x64 では起きない（同じ形の Player で、負荷をかけた 21 万回の競合で 0 回）。libil2cpp にもこのパッチにも関係がなく、パッチなしでも同じコードである。
+- 検査は、名前が `null` なら読み直した値で比べ、その回数を結果の `cacheRaces` に書く。読み直すようにした版は、37,440 回の競合で失敗 0 回、`null` を見たのは 2 回だった。`-generic-memory-propname` は、この競合だけを、ジェネリックも型の初回利用もなしで回す。
+- 途中で「ジェネリックの具象型のフィールドの表が、バリアなしで公開されている」ことを原因と見てバリアを 2 か所足したが、足した版でも同じ頻度で失敗したので取り消した。
 - 製品のパッチ（`Il2CppLazyMetadata.cs`）が自動で当たるのは iOS だけである。Android では、パッチを当てた il2cpp フォルダの複製を `UNITY_IL2CPP_PATH` で使わせて確かめた。

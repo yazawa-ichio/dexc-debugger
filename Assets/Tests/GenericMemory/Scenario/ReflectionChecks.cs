@@ -930,7 +930,7 @@ namespace GenericMemory
 		/// type and each listing of <see cref="s_listings"/>, how many entries the listing had and a number for them, so
 		/// that two scans that differ can say where.
 		/// </summary>
-		static uint Scan(Type[] types, uint[] parts = null)
+		static uint Scan(Type[] types, uint[] parts = null, string[][] members = null)
 		{
 			var hash = 2166136261;
 			for (var index = 0; index < types.Length; index++)
@@ -939,12 +939,18 @@ namespace GenericMemory
 				var at = index * s_listings.Length * 2;
 				var part = 2166136261;
 				var count = 0u;
+				var listed = members == null ? null : new List<string>();
 				foreach (var member in type.GetMembers(All))
 				{
-					var text = member.MemberType + member.Name + member.MetadataToken;
+					var text = member.MemberType + NameOf(member) + member.MetadataToken;
 					hash = Fnv(hash, text);
 					part = Fnv(part, text);
 					count++;
+					listed?.Add(text);
+				}
+				if (members != null)
+				{
+					members[index] = listed.ToArray();
 				}
 				Note(parts, at, ref part, ref count);
 				foreach (var method in type.GetMethods(All))
@@ -957,8 +963,8 @@ namespace GenericMemory
 				Note(parts, at + 2, ref part, ref count);
 				foreach (var property in type.GetProperties(All))
 				{
-					var getter = property.GetGetMethod(true);
-					var text = property.Name + (getter == null ? "" : getter.Name);
+					var getter = GetterOf(property);
+					var text = NameOf(property) + (getter == null ? "" : getter.Name);
 					hash = Fnv(hash, text);
 					part = Fnv(part, text);
 					count++;
@@ -998,6 +1004,152 @@ namespace GenericMemory
 			return hash;
 		}
 
+		static int s_cacheRaces;
+
+		/// <summary>
+		/// How often a property had no name, or no getter, when one thread read it and had one a moment later. That is
+		/// not the runtime's doing: the class library's RuntimePropertyInfo keeps what it asked the runtime in a struct
+		/// and notes in a field that it did, with no lock and no barrier between the two. On a processor that does not
+		/// keep the order of writes (ARM64) a second thread can see the note before the name, and reads null.
+		/// </summary>
+		public static int CacheRaces => s_cacheRaces;
+
+		/// <summary>The name of a member, read again when the class library's cache gave none (see <see cref="CacheRaces"/>).</summary>
+		static string NameOf(MemberInfo member)
+		{
+			var name = member.Name;
+			if (name != null)
+			{
+				return name;
+			}
+			Interlocked.Increment(ref s_cacheRaces);
+			for (var tries = 0; tries < 1000 && name == null; tries++)
+			{
+				Thread.Yield();
+				name = member.Name;
+			}
+			return name;
+		}
+
+		/// <summary>The getter of a property, read again when there was none: the same cache holds it.</summary>
+		static MethodInfo GetterOf(PropertyInfo property)
+		{
+			var getter = property.GetGetMethod(true);
+			if (getter == null)
+			{
+				Thread.Yield();
+				getter = property.GetGetMethod(true);
+				if (getter != null)
+				{
+					Interlocked.Increment(ref s_cacheRaces);
+				}
+			}
+			return getter;
+		}
+
+		static PropertyInfo[] s_raceProperties;
+		static int s_raceGeneration;
+		static int s_raceDone;
+		static int s_raceNulls;
+		static bool s_raceOver;
+
+		/// <summary>
+		/// The class library's race of <see cref="CacheRaces"/> and nothing else, with no generic type and no first use
+		/// in it: for every type of every loaded assembly, <paramref name="threadCount"/> threads read the names of its
+		/// properties at the same moment, each property for the first time. Counts the names that came back null.
+		/// </summary>
+		public static void PropertyNameRace(StringBuilder text, int threadCount)
+		{
+			var types = new List<Type>();
+			foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+			{
+				Type[] found;
+				try
+				{
+					found = assembly.GetTypes();
+				}
+				catch (ReflectionTypeLoadException exception)
+				{
+					found = exception.Types;
+				}
+				types.AddRange(found.Where(type => type != null));
+			}
+			s_raceOver = false;
+			s_raceNulls = 0;
+			var threads = new Thread[threadCount];
+			// Every thread starts from here, whenever it gets to run: none may miss the first type.
+			var before = Volatile.Read(ref s_raceGeneration);
+			for (var at = 0; at < threads.Length; at++)
+			{
+				threads[at] = new Thread(() =>
+				{
+					var seen = before;
+					while (true)
+					{
+						int generation;
+						while ((generation = Volatile.Read(ref s_raceGeneration)) == seen)
+						{
+							if (Volatile.Read(ref s_raceOver))
+							{
+								return;
+							}
+						}
+						seen = generation;
+						var nulls = 0;
+						foreach (var property in Volatile.Read(ref s_raceProperties))
+						{
+							if (property.Name == null)
+							{
+								nulls++;
+							}
+						}
+						if (nulls != 0)
+						{
+							Interlocked.Add(ref s_raceNulls, nulls);
+						}
+						Interlocked.Increment(ref s_raceDone);
+					}
+				});
+				threads[at].Start();
+			}
+			var properties = 0;
+			var listed = 0;
+			foreach (var type in types)
+			{
+				PropertyInfo[] own;
+				try
+				{
+					own = type.GetProperties(All | BindingFlags.DeclaredOnly);
+				}
+				catch (Exception)
+				{
+					continue;
+				}
+				if (own.Length == 0)
+				{
+					continue;
+				}
+				Volatile.Write(ref s_raceProperties, own);
+				Volatile.Write(ref s_raceDone, 0);
+				Interlocked.Increment(ref s_raceGeneration);
+				while (Volatile.Read(ref s_raceDone) < threadCount)
+				{
+				}
+				properties += own.Length;
+				listed++;
+			}
+			Volatile.Write(ref s_raceOver, true);
+			foreach (var thread in threads)
+			{
+				thread.Join();
+			}
+			text.Append("types\t").Append(listed).Append('\n');
+			text.Append("properties\t").Append(properties).Append('\n');
+			text.Append("threads\t").Append(threadCount).Append('\n');
+			text.Append("nullNames\t").Append(s_raceNulls).Append('\n');
+			text.Append("check\tPropertyNameRace\t0\tPASS\tran\n");
+		}
+
 		static void Note(uint[] parts, int at, ref uint part, ref uint count)
 		{
 			if (parts != null)
@@ -1010,7 +1162,7 @@ namespace GenericMemory
 		}
 
 		/// <summary>Which listings of which types two scans did not agree on, with the number of entries each had.</summary>
-		static string Differences(Type[] types, uint[] raced, uint[] afterwards)
+		static string Differences(Type[] types, uint[] raced, uint[] afterwards, string[][] racedMembers, string[][] membersAfterwards)
 		{
 			var text = new StringBuilder();
 			for (var index = 0; index < types.Length; index++)
@@ -1022,6 +1174,23 @@ namespace GenericMemory
 					{
 						text.Append(text.Length == 0 ? "" : ", ").Append(types[index].Name).Append(' ').Append(s_listings[listing])
 							.Append(' ').Append(raced[at]).Append('/').Append(afterwards[at]);
+						if (listing == 0)
+						{
+							// The entries of the list of the members themselves: the first three the two scans read differently.
+							var mine = racedMembers[index] ?? new string[0];
+							var theirs = membersAfterwards[index] ?? new string[0];
+							var shown = 0;
+							for (var entry = 0; entry < Math.Max(mine.Length, theirs.Length) && shown < 3; entry++)
+							{
+								var left = entry < mine.Length ? mine[entry] : "(none)";
+								var right = entry < theirs.Length ? theirs[entry] : "(none)";
+								if (left != right)
+								{
+									text.Append(" [").Append(entry).Append("] '").Append(left).Append("' / '").Append(right).Append("'");
+									shown++;
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1103,6 +1272,11 @@ namespace GenericMemory
 			{
 				parts[at] = new uint[types.Length * s_listings.Length * 2];
 			}
+			var members = new string[Scanners + 1][][];
+			for (var at = 0; at < members.Length; at++)
+			{
+				members[at] = new string[types.Length][];
+			}
 			var uses = new int[Users];
 			var errors = new Exception[Scanners + Users];
 			var threads = new Thread[Scanners + Users];
@@ -1121,7 +1295,7 @@ namespace GenericMemory
 					{
 						if (mine < Scanners)
 						{
-							scans[mine] = Scan(types, parts[mine]);
+							scans[mine] = Scan(types, parts[mine], members[mine]);
 						}
 						else
 						{
@@ -1149,12 +1323,12 @@ namespace GenericMemory
 				Expect(errors[at] == null, label + ", thread " + at + ": " + (errors[at] == null ? "" : errors[at].GetType().Name + ": " + Flat(errors[at].Message)), failures);
 			}
 			// What one thread gets afterwards is what every thread of the race has to have got.
-			var scan = Scan(types, parts[Scanners]);
+			var scan = Scan(types, parts[Scanners], members[Scanners]);
 			var use = UseOnce(seed);
 			for (var at = 0; at < Scanners; at++)
 			{
 				Expect(scans[at] == scan, label + ", thread " + at + " listed " + scans[at].ToString("x8") + ", afterwards " + scan.ToString("x8")
-					+ (scans[at] == scan ? "" : ": " + Differences(types, parts[at], parts[Scanners])), failures);
+					+ (scans[at] == scan ? "" : ": " + Differences(types, parts[at], parts[Scanners], members[at], members[Scanners])), failures);
 			}
 			for (var at = 0; at < Users; at++)
 			{
@@ -1207,6 +1381,7 @@ namespace GenericMemory
 				text.Append("check\tRaceStress\t0\tFAIL\t").Append(Flat(failure)).Append('\n');
 			}
 			text.Append("levels\t").Append(races).Append('\n');
+			text.Append("cacheRaces\t").Append(CacheRaces).Append('\n');
 			text.Append("check\tRaceStress\t0\tPASS\tran\n");
 			Failed += failures.Count;
 		}

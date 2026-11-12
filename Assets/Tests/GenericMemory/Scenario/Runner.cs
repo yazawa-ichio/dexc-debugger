@@ -21,6 +21,8 @@ namespace GenericMemory
 	/// times the kernels of <see cref="InterfaceBench"/>; -generic-memory-speed-bench those of <see cref="SpeedBench"/>.
 	/// -generic-memory-reflection writes the lines of <see cref="ReflectionChecks"/>.
 	/// -generic-memory-race &lt;depth&gt; runs only the race of threads of those checks, over a tree of types that deep.
+	/// -generic-memory-propname &lt;threads&gt; runs <see cref="ReflectionChecks.PropertyNameRace"/>: that many threads read
+	/// the names of the properties of every loaded type at the same moment.
 	/// -generic-memory-sharing runs <see cref="SharingChecks"/>, like -generic-memory-interfaces.
 	/// With -generic-memory-names a measured pattern also writes, beside its output, every class and method the runtime made.
 	/// On Android the arguments come from the intent or from a file, and an output that is not a full path is a file of
@@ -65,6 +67,7 @@ namespace GenericMemory
 		bool _sharing;
 		bool _reflection;
 		int _race = -1;
+		int _propertyNames = -1;
 		int _frame;
 		int _ranAt = -1;
 		ulong[] _before;
@@ -136,6 +139,9 @@ namespace GenericMemory
 					case "-generic-memory-race":
 						_race = int.Parse(args[at + 1]);
 						break;
+					case "-generic-memory-propname":
+						_propertyNames = int.Parse(args[at + 1]);
+						break;
 				}
 			}
 			_bench = Array.IndexOf(args, "-generic-memory-bench") >= 0;
@@ -150,7 +156,7 @@ namespace GenericMemory
 			_comparers = Array.IndexOf(args, "-generic-memory-comparers") >= 0;
 			_sharing = Array.IndexOf(args, "-generic-memory-sharing") >= 0;
 			_reflection = Array.IndexOf(args, "-generic-memory-reflection") >= 0;
-			if (_checks || _interfaces || _interfaceBench || _speedBench || _comparers || _sharing || _reflection || _race >= 0)
+			if (_checks || _interfaces || _interfaceBench || _speedBench || _comparers || _sharing || _reflection || _race >= 0 || _propertyNames >= 0)
 			{
 				_pattern = "Checks";
 			}
@@ -192,6 +198,25 @@ namespace GenericMemory
 					if (_speedBench)
 					{
 						SpeedBench.Run(text);
+					}
+					File.WriteAllText(_output, text.ToString());
+					_pattern = null;
+					Application.Quit(0);
+				}
+				return;
+			}
+			if (_propertyNames >= 0)
+			{
+				if (_frame == 5)
+				{
+					var text = new StringBuilder();
+					try
+					{
+						ReflectionChecks.PropertyNameRace(text, _propertyNames);
+					}
+					catch (Exception exception)
+					{
+						text.Append("check\tPropertyNameRace\t0\tFAIL\t").Append(exception.GetType().Name).Append('\n');
 					}
 					File.WriteAllText(_output, text.ToString());
 					_pattern = null;
