@@ -287,6 +287,17 @@ namespace GenericMemory
 			public T Inner;
 		}
 
+		// Two more ways to make a type of a type, for RaceStress: many types that nothing has used, none of them deep.
+		sealed class WrapB<T>
+		{
+			public T Inner;
+		}
+
+		sealed class WrapC<T>
+		{
+			public T Inner;
+		}
+
 		static class Counters
 		{
 			public static int StaticConstructors;
@@ -911,41 +922,110 @@ namespace GenericMemory
 			return hash;
 		}
 
-		static uint Scan(Type[] types)
+		// What Scan lists of a type, in the order it lists it.
+		static readonly string[] s_listings = { "members", "methods", "properties", "events", "constructors", "interfaces", "enumerable" };
+
+		/// <summary>
+		/// One number for everything reflection lists of the types. With <paramref name="parts"/> it also notes, for each
+		/// type and each listing of <see cref="s_listings"/>, how many entries the listing had and a number for them, so
+		/// that two scans that differ can say where.
+		/// </summary>
+		static uint Scan(Type[] types, uint[] parts = null)
 		{
 			var hash = 2166136261;
-			foreach (var type in types)
+			for (var index = 0; index < types.Length; index++)
 			{
+				var type = types[index];
+				var at = index * s_listings.Length * 2;
+				var part = 2166136261;
+				var count = 0u;
 				foreach (var member in type.GetMembers(All))
 				{
-					hash = Fnv(hash, member.MemberType + member.Name + member.MetadataToken);
+					var text = member.MemberType + member.Name + member.MetadataToken;
+					hash = Fnv(hash, text);
+					part = Fnv(part, text);
+					count++;
 				}
+				Note(parts, at, ref part, ref count);
 				foreach (var method in type.GetMethods(All))
 				{
-					hash = Fnv(hash, method.Name + method.GetParameters().Length + method.MetadataToken);
+					var text = method.Name + method.GetParameters().Length + method.MetadataToken;
+					hash = Fnv(hash, text);
+					part = Fnv(part, text);
+					count++;
 				}
+				Note(parts, at + 2, ref part, ref count);
 				foreach (var property in type.GetProperties(All))
 				{
 					var getter = property.GetGetMethod(true);
-					hash = Fnv(hash, property.Name + (getter == null ? "" : getter.Name));
+					var text = property.Name + (getter == null ? "" : getter.Name);
+					hash = Fnv(hash, text);
+					part = Fnv(part, text);
+					count++;
 				}
+				Note(parts, at + 4, ref part, ref count);
 				foreach (var raised in type.GetEvents(All))
 				{
 					var add = raised.GetAddMethod(true);
-					hash = Fnv(hash, raised.Name + (add == null ? "" : add.Name));
+					var text = raised.Name + (add == null ? "" : add.Name);
+					hash = Fnv(hash, text);
+					part = Fnv(part, text);
+					count++;
 				}
+				Note(parts, at + 6, ref part, ref count);
 				foreach (var constructor in type.GetConstructors(All))
 				{
-					hash = Fnv(hash, constructor.Name + constructor.GetParameters().Length);
+					var text = constructor.Name + constructor.GetParameters().Length;
+					hash = Fnv(hash, text);
+					part = Fnv(part, text);
+					count++;
 				}
+				Note(parts, at + 8, ref part, ref count);
 				// The interfaces, sorted: the runtime gives them in the order of their addresses.
 				foreach (var implemented in type.GetInterfaces().Select(listed => listed.ToString()).OrderBy(name => name, StringComparer.Ordinal))
 				{
 					hash = Fnv(hash, implemented);
+					part = Fnv(part, implemented);
+					count++;
 				}
-				hash = Fnv(hash, typeof(IEnumerable).IsAssignableFrom(type) ? "enumerable" : "not");
+				Note(parts, at + 10, ref part, ref count);
+				var enumerable = typeof(IEnumerable).IsAssignableFrom(type) ? "enumerable" : "not";
+				hash = Fnv(hash, enumerable);
+				part = Fnv(part, enumerable);
+				count++;
+				Note(parts, at + 12, ref part, ref count);
 			}
 			return hash;
+		}
+
+		static void Note(uint[] parts, int at, ref uint part, ref uint count)
+		{
+			if (parts != null)
+			{
+				parts[at] = count;
+				parts[at + 1] = part;
+			}
+			part = 2166136261;
+			count = 0;
+		}
+
+		/// <summary>Which listings of which types two scans did not agree on, with the number of entries each had.</summary>
+		static string Differences(Type[] types, uint[] raced, uint[] afterwards)
+		{
+			var text = new StringBuilder();
+			for (var index = 0; index < types.Length; index++)
+			{
+				for (var listing = 0; listing < s_listings.Length; listing++)
+				{
+					var at = (index * s_listings.Length + listing) * 2;
+					if (raced[at] != afterwards[at] || raced[at + 1] != afterwards[at + 1])
+					{
+						text.Append(text.Length == 0 ? "" : ", ").Append(types[index].Name).Append(' ').Append(s_listings[listing])
+							.Append(' ').Append(raced[at]).Append('/').Append(afterwards[at]);
+					}
+				}
+			}
+			return text.Length == 0 ? "no listing differs" : text.ToString();
 		}
 
 		static int UseOnce<T>(T seed)
@@ -998,7 +1078,7 @@ namespace GenericMemory
 		/// <summary>
 		/// One race for T, then the same for a type made of T, which nothing has touched either: every level is a first use.
 		/// </summary>
-		static void Race<T>(T seed, int depth, string label)
+		static void Race<T>(T seed, int depth, string label, List<string> failures = null)
 			where T : class
 		{
 			const int Scanners = 3;
@@ -1018,6 +1098,11 @@ namespace GenericMemory
 				typeof(IList<T>),
 			};
 			var scans = new uint[Scanners];
+			var parts = new uint[Scanners + 1][];
+			for (var at = 0; at < parts.Length; at++)
+			{
+				parts[at] = new uint[types.Length * s_listings.Length * 2];
+			}
 			var uses = new int[Users];
 			var errors = new Exception[Scanners + Users];
 			var threads = new Thread[Scanners + Users];
@@ -1036,7 +1121,7 @@ namespace GenericMemory
 					{
 						if (mine < Scanners)
 						{
-							scans[mine] = Scan(types);
+							scans[mine] = Scan(types, parts[mine]);
 						}
 						else
 						{
@@ -1061,23 +1146,81 @@ namespace GenericMemory
 			}
 			for (var at = 0; at < errors.Length; at++)
 			{
-				Expect(errors[at] == null, label + ", thread " + at + ": " + (errors[at] == null ? "" : errors[at].GetType().Name + ": " + Flat(errors[at].Message)));
+				Expect(errors[at] == null, label + ", thread " + at + ": " + (errors[at] == null ? "" : errors[at].GetType().Name + ": " + Flat(errors[at].Message)), failures);
 			}
 			// What one thread gets afterwards is what every thread of the race has to have got.
-			var scan = Scan(types);
+			var scan = Scan(types, parts[Scanners]);
 			var use = UseOnce(seed);
 			for (var at = 0; at < Scanners; at++)
 			{
-				Expect(scans[at] == scan, label + ", thread " + at + " listed " + scans[at].ToString("x8") + ", afterwards " + scan.ToString("x8"));
+				Expect(scans[at] == scan, label + ", thread " + at + " listed " + scans[at].ToString("x8") + ", afterwards " + scan.ToString("x8")
+					+ (scans[at] == scan ? "" : ": " + Differences(types, parts[at], parts[Scanners])), failures);
 			}
 			for (var at = 0; at < Users; at++)
 			{
-				Expect(uses[at] == use, label + ", thread " + (Scanners + at) + " computed " + uses[at] + ", afterwards " + use);
+				Expect(uses[at] == use, label + ", thread " + (Scanners + at) + " computed " + uses[at] + ", afterwards " + use, failures);
 			}
 			Line(label + " | listed " + scan.ToString("x8") + " | computed " + use);
 			if (depth > 0)
 			{
-				Race(new Wrap<T> { Inner = seed }, depth - 1, label + "+");
+				Race(new Wrap<T> { Inner = seed }, depth - 1, label + "+", failures);
+			}
+		}
+
+		/// <summary>A failure that is noted and does not end the check, when there is a list for it.</summary>
+		static void Expect(bool condition, string what, List<string> failures)
+		{
+			if (condition)
+			{
+				return;
+			}
+			if (failures == null)
+			{
+				throw new CheckFailed(what);
+			}
+			failures.Add(what);
+		}
+
+		/// <summary>
+		/// The race of EnumerateWhileFirstUsed and nothing else, for a runtime that loses it once in many runs: from each
+		/// of nine element types a tree of types made of it in three ways, <paramref name="depth"/> levels deep, and one
+		/// race for every type of the tree (9 * (3^(depth + 1) - 1) / 2 of them, none deeper than depth). It does not stop
+		/// at a race that failed: every failure is a line of its own, and the last lines say how many races there were.
+		/// </summary>
+		public static void RaceStress(StringBuilder text, int depth)
+		{
+			s_text = text;
+			s_name = "RaceStress";
+			var failures = new List<string>();
+			var races = 0;
+			RaceTree(new ElemH1(), depth, "H1", failures, ref races);
+			RaceTree(new ElemH2(), depth, "H2", failures, ref races);
+			RaceTree(new ElemH3(), depth, "H3", failures, ref races);
+			RaceTree(new ElemH4(), depth, "H4", failures, ref races);
+			RaceTree(new ElemH5(), depth, "H5", failures, ref races);
+			RaceTree(new ElemH6(), depth, "H6", failures, ref races);
+			RaceTree(new ElemH7(), depth, "H7", failures, ref races);
+			RaceTree(new ElemH8(), depth, "H8", failures, ref races);
+			RaceTree(new ElemI(), depth, "I", failures, ref races);
+			foreach (var failure in failures)
+			{
+				text.Append("check\tRaceStress\t0\tFAIL\t").Append(Flat(failure)).Append('\n');
+			}
+			text.Append("levels\t").Append(races).Append('\n');
+			text.Append("check\tRaceStress\t0\tPASS\tran\n");
+			Failed += failures.Count;
+		}
+
+		static void RaceTree<T>(T seed, int depth, string label, List<string> failures, ref int races)
+			where T : class
+		{
+			Race(seed, 0, label, failures);
+			races++;
+			if (depth > 0)
+			{
+				RaceTree(new Wrap<T> { Inner = seed }, depth - 1, label + "a", failures, ref races);
+				RaceTree(new WrapB<T> { Inner = seed }, depth - 1, label + "b", failures, ref races);
+				RaceTree(new WrapC<T> { Inner = seed }, depth - 1, label + "c", failures, ref races);
 			}
 		}
 

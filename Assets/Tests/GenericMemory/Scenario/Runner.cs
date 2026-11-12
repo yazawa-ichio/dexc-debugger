@@ -20,8 +20,11 @@ namespace GenericMemory
 	/// <see cref="ComparerChecks"/>, and -generic-memory-interface-bench
 	/// times the kernels of <see cref="InterfaceBench"/>; -generic-memory-speed-bench those of <see cref="SpeedBench"/>.
 	/// -generic-memory-reflection writes the lines of <see cref="ReflectionChecks"/>.
+	/// -generic-memory-race &lt;depth&gt; runs only the race of threads of those checks, over a tree of types that deep.
 	/// -generic-memory-sharing runs <see cref="SharingChecks"/>, like -generic-memory-interfaces.
 	/// With -generic-memory-names a measured pattern also writes, beside its output, every class and method the runtime made.
+	/// On Android the arguments come from the intent or from a file, and an output that is not a full path is a file of
+	/// the app's own folder: see <see cref="Arguments"/>.
 	/// </summary>
 	public sealed class Runner : MonoBehaviour
 	{
@@ -61,6 +64,7 @@ namespace GenericMemory
 		bool _comparers;
 		bool _sharing;
 		bool _reflection;
+		int _race = -1;
 		int _frame;
 		int _ranAt = -1;
 		ulong[] _before;
@@ -78,19 +82,44 @@ namespace GenericMemory
 		{
 			// This assembly is in every Player the project builds. Only one that was started for the bench gets the runner;
 			// any other would be told to quit for lack of the arguments.
-			if (!Array.Exists(Environment.GetCommandLineArgs(), argument => argument.StartsWith("-generic-memory-", StringComparison.Ordinal)))
+			if (!Array.Exists(Arguments(), argument => argument.StartsWith("-generic-memory-", StringComparison.Ordinal)))
 			{
 				return;
 			}
+#if UNITY_ANDROID
+			// A run is driven from the PC and nobody touches the device: a screen that goes dark would stop the frames.
+			Screen.sleepTimeout = SleepTimeout.NeverSleep;
+#endif
 			var host = new GameObject("Generic Memory Runner");
 			DontDestroyOnLoad(host);
 			host.AddComponent<Runner>();
 		}
 #endif
 
-		void Start()
+		/// <summary>
+		/// The arguments the Player was started with. An Android app has no command line of its own: Unity makes one of the
+		/// intent's "unity" extra (am start -e unity "..."). When nothing of the bench is in it, the arguments are read from
+		/// the file generic-memory-args.txt of the app's own folder (Application.persistentDataPath).
+		/// </summary>
+		static string[] Arguments()
 		{
 			var args = Environment.GetCommandLineArgs();
+#if UNITY_ANDROID && !UNITY_EDITOR
+			if (!Array.Exists(args, argument => argument.StartsWith("-generic-memory-", StringComparison.Ordinal)))
+			{
+				var file = Path.Combine(Application.persistentDataPath, "generic-memory-args.txt");
+				if (File.Exists(file))
+				{
+					args = File.ReadAllText(file).Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+				}
+			}
+#endif
+			return args;
+		}
+
+		void Start()
+		{
+			var args = Arguments();
 			for (var at = 0; at < args.Length - 1; at++)
 			{
 				switch (args[at])
@@ -103,6 +132,9 @@ namespace GenericMemory
 						break;
 					case "-generic-memory-output":
 						_output = args[at + 1];
+						break;
+					case "-generic-memory-race":
+						_race = int.Parse(args[at + 1]);
 						break;
 				}
 			}
@@ -118,7 +150,7 @@ namespace GenericMemory
 			_comparers = Array.IndexOf(args, "-generic-memory-comparers") >= 0;
 			_sharing = Array.IndexOf(args, "-generic-memory-sharing") >= 0;
 			_reflection = Array.IndexOf(args, "-generic-memory-reflection") >= 0;
-			if (_checks || _interfaces || _interfaceBench || _speedBench || _comparers || _sharing || _reflection)
+			if (_checks || _interfaces || _interfaceBench || _speedBench || _comparers || _sharing || _reflection || _race >= 0)
 			{
 				_pattern = "Checks";
 			}
@@ -126,6 +158,14 @@ namespace GenericMemory
 			{
 				KeepAll.Run();
 			}
+#if UNITY_ANDROID && !UNITY_EDITOR
+			// Whoever starts the run names the file, not where the device keeps the app's folder. adb reads it from there.
+			if (_output != null && !Path.IsPathRooted(_output))
+			{
+				_output = Path.Combine(Application.persistentDataPath, _output);
+			}
+			UnityEngine.Debug.Log("Generic memory: " + string.Join(" ", args) + " -> " + _output);
+#endif
 			if (_pattern == null || _output == null)
 			{
 				UnityEngine.Debug.LogError("Generic memory: -generic-memory-pattern and -generic-memory-output are required");
@@ -156,6 +196,26 @@ namespace GenericMemory
 					File.WriteAllText(_output, text.ToString());
 					_pattern = null;
 					Application.Quit(0);
+				}
+				return;
+			}
+			if (_race >= 0)
+			{
+				if (_frame == 5)
+				{
+					var text = new StringBuilder();
+					try
+					{
+						ReflectionChecks.RaceStress(text, _race);
+						text.Append("failed\t").Append(ReflectionChecks.Failed).Append('\n');
+					}
+					catch (Exception exception)
+					{
+						text.Append("check\tRaceStress\t0\tFAIL\t").Append(exception.GetType().Name).Append('\n').Append("failed\t1\n");
+					}
+					File.WriteAllText(_output, text.ToString());
+					_pattern = null;
+					Application.Quit(ReflectionChecks.Failed == 0 ? 0 : 4);
 				}
 				return;
 			}
@@ -202,7 +262,7 @@ namespace GenericMemory
 					}
 					if (_comparers)
 					{
-						if (Array.IndexOf(Environment.GetCommandLineArgs(), "-generic-memory-comparers-warm") >= 0)
+						if (Array.IndexOf(Arguments(), "-generic-memory-comparers-warm") >= 0)
 						{
 							ComparerChecks.Warm();
 						}
@@ -360,7 +420,7 @@ namespace GenericMemory
 			}
 			File.WriteAllText(_output, text.ToString());
 			// Last of all, because naming a type can make the runtime allocate: every class and method made since the snapshot.
-			if (Array.IndexOf(Environment.GetCommandLineArgs(), "-generic-memory-names") >= 0)
+			if (Array.IndexOf(Arguments(), "-generic-memory-names") >= 0)
 			{
 				il2cpp_generic_memory_names(_output + ".names");
 			}

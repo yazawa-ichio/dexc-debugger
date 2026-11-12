@@ -41,3 +41,7 @@ tools/il2cpp-generic-memory/results/
 # generate.py が書くシナリオのコード
 /Assets/Tests/GenericMemory/Scenario/Generated/
 /Assets/Tests/GenericMemory/Scenario/Generated.meta
+
+# Android の Gradle ビルドの一時フォルダと、Python のキャッシュ
+.utmp/
+__pycache__/

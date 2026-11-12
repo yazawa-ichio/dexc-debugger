@@ -3,7 +3,7 @@
 IL2CPP の Player は、ジェネリック型の具象型（`List<Foo>` など）を使うたびに、VM のメタデータ（クラス、メソッド、表）を積む。この作業は、それを「使う時まで作らない」「作る数を減らす」ことで減らす。このファイルは、関係するファイルがどこにあって何をするかの索引である。
 
 - ブランチ: メモリの最適化は `il2cpp-generic-memory`、速度の最適化は `il2cpp-speed`（メモリのブランチの上に積む）。
-- Unity 6000.3.20f1。動かして確かめたのは Windows x64 の IL2CPP の Player。ARM64（Android、iOS）は確認の途中。
+- Unity 6000.3.20f1。動かして確かめたのは Windows x64 と、Android の実機（arm64、Pixel 3 XL）の IL2CPP の Player。iOS では動かしていない。
 - 2026-11-11 までの計測の記録と、採らなかった手法の説明は [record.md](record.md)（数値と「ファイル」の表は古い）。Editor を使わないビルドの手順は [offline/README.md](offline/README.md)。
 
 ## どこに何があるか
@@ -69,6 +69,7 @@ IL2CPP の Player は、ジェネリック型の具象型（`List<Foo>` など�
 | ファイル | 中身 |
 |---|---|
 | `GenericMemoryBuild.cs` | 開いている Editor から Windows の計測用 Player をビルドする入口。`UNITY_IL2CPP_PATH` で il2cpp フォルダの複製を使わせる |
+| `GenericMemoryAndroidBuild.cs` | 同じことを Android（arm64）の Player でする入口。アクティブなビルドターゲットが Android の時だけ動き、アプリ ID など変えた設定を戻す。`UNITY_IL2CPP_PATH` は Android のビルドでも効く |
 | `GenericMemoryPreLink.cs` | スクリプトのコンパイルの後、UnityLinker の前に全 DLL を書き換える所。環境変数 `GENERIC_MEMORY_VARIANT` が段階（`+` でつなぐ）、`GENERIC_MEMORY_SAVE_MANAGED` が書き換え前の DLL の保存先 |
 | `GenericMemoryWeaver.cs` | 書き換えの土台。`Run(folder, steps)` が段階を振り分ける。`WholeProgram` はビルドの全 DLL を 1 つのプログラムとして読み書きする。`Hoister` は段階 `hoist` |
 | `Canonicalizer.cs` | 「このメソッドは型引数を実行時に見ない」の解析と、段階 `canon`／`comparers`／`free` |
@@ -111,7 +112,10 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 | `-generic-memory-pattern <名前> -generic-memory-n <数>` | パターンの型を `数` 個使い、増えたメタデータを書く。`-generic-memory-names` を足すと、作られたクラスとメソッドの名前も書く |
 | `-generic-memory-checks`、`-generic-memory-reflection`、`-generic-memory-interfaces`、`-generic-memory-comparers`、`-generic-memory-sharing` | 上の検証を実行する（`checks` は `AsyncChecks`） |
 | `-generic-memory-bench`、`-generic-memory-interface-bench`、`-generic-memory-speed-bench` | 速度のカーネルを測る |
+| `-generic-memory-race <深さ>` | リフレクションの検証のうち、競合の検査だけを回す。型の木を `深さ` 段たどる（深さ 2 なら、1 回の実行で 117 回の競合）。失敗した時は、どの型のどの一覧が何個違ったかを書く |
 | `-generic-memory-output <ファイル>` | 結果の書き出し先（必須） |
+
+Android では、引数はインテントの `unity` の追加情報（`am start -e unity "<引数>"`）か、アプリのフォルダの `generic-memory-args.txt` から読む。フルパスでない書き出し先は、アプリのフォルダ（`Application.persistentDataPath`）の下になる。
 
 ## 道具（`tools/il2cpp-generic-memory`）
 
@@ -129,6 +133,9 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 | `c-bench.py`、`c-bench.sh`、`c-stats.py`、`c-final.sh`、`m-bench.py` | 速度の計測と集計。条件を交互に実行して、最良値、中央値、幅を出す |
 | `c-build.py`、`c-relink.py`、`c-measure.py` | 速度の検証用。il2cpp とコンパイラの引数を変えたビルド、生成された C++ の一部だけを差し替えた Player |
 | `a-run.sh`、`b-names-run.sh`、`bench.sh`、`bench.py` | 4 桁の組での実行、名前つきの一覧、以前の速度の計測 |
+| `d-android-switch.sh`、`d-android-build.sh`、`d-android-keep.py` | Android の実機確認。ビルドターゲットを Android にする、Editor のロックの中で Android の Player をビルドする、そのビルドがどの libil2cpp をコンパイルしたかを確かめてシンボルつきのライブラリを残す |
+| `d-android-run.py` | 接続した Android の端末に入れて実行する（`install`、`checks`、`repeat`、`measure`）。計測用のアプリのパッケージだけを扱う。`D_ANDROID_LOAD` で端末に負荷をかけながら回せる |
+| `d-win-run.py` | 同じ検証を、比較用の Windows の Player で回す |
 
 `a-`、`b-`、`c-`、`m-` の接頭辞は、検証を並行で進めた時の持ち主の印で、役割の区別ではない。
 
@@ -153,3 +160,17 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 - 届かないのは、Task、UniTask、デリゲートのパターン。
 - 代償: 共有コードが RGCTX を読むたびに検査が 1 つ入る。ジェネリックなインターフェースへのキャストと、変性つきのインターフェース呼び出しが遅くなる。インターフェースを初めて呼ぶたびに対の表を複製する。`linq` は LINQ の 1 回あたりの GC のバイト数を 1〜7% 増やす。
 - `Type.GetInterfaces()` の並び順が変わる（中身は同じ）。
+
+### Android の実機（2026-11-12、Pixel 3 XL、arm64、Android 12）
+
+- 製品と同じ形（常時オン）のパッチ入り libil2cpp は、Unity の Android ビルド（NDK の clang）でコンパイル・リンクできる。
+- 検証 5 種が、常時オンと、常時オン＋IL の両方で通る。型あたりのメタデータは、16 パターンとも Windows と同じ値だった。
+- 競合の検査（複数スレッドが同時に型を初めて使いながらリフレクションで走査する）の失敗 / 競合の回数:
+
+| ランタイム | arm64 | 備考 |
+|---|---:|---|
+| パッチなし | 2 / 6,839 | 素の libil2cpp にある競合。内訳が取れた 1 回は、`List<T>` のインターフェースが 8 個中 1 個しか列挙されなかった。Windows でも PC に負荷をかけると 300 回の実行で 39 回失敗し、1 回クラッシュした |
+| 常時オン | 0 / 14,447 | |
+| 常時オン＋IL | 1 / 39,096 | **原因は分かっていない。**その時のビルドはハッシュしか残しておらず、内訳を出す診断を足してからは再現していない |
+
+- 製品のパッチ（`Il2CppLazyMetadata.cs`）が自動で当たるのは iOS だけである。Android では、パッチを当てた il2cpp フォルダの複製を `UNITY_IL2CPP_PATH` で使わせて確かめた。
