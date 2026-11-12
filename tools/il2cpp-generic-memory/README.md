@@ -187,7 +187,7 @@ Android では、引数はインテントの `unity` の追加情報（`am start
 | 手 | 状態 | 切り替え方 |
 |---|---|---|
 | キャストのキャッシュ（`Native~/Il2CppCastCache.h`） | 入っている | ビルド時の環境変数 `IL2CPP_CAST_CACHE=0` で外す |
-| 小さいメソッドへの `AggressiveInlining`（IL） | 試作のまま（`.local/c/weaver/Speed.cs`）。入れていない | — |
+| 小さいメソッドへの `AggressiveInlining`（IL） | 採っていない。効くのは小さいメソッドの呼び出しだけで、1 回あたり 0.4〜1.4 ns（`list[i]` で 1.57 → 0.95 ns）。LINQ、インターフェース呼び出し、仮想呼び出しは変わらず、DLL は 4.2% 増える。BCL まで書き換える経路も要る。試作は `.local/c/weaver/Speed.cs`（Git の外） | — |
 | sealed／final 化（IL） | 採っていない。フラグを足して変わるのは仮想呼び出しの 5%（プロジェクトのコードでは 463 か所のうち 19 か所）で、インターフェース呼び出しは変わらない | — |
 
 キャストのキャッシュの効果（製品と同じ形の Player、Windows x64、7 回の最良値、ns）:
