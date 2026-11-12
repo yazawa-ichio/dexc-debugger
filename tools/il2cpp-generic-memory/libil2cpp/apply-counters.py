@@ -16,13 +16,17 @@ def edit(path, pairs):
     raw = io.open(path, encoding="utf-8-sig", newline="").read()
     crlf = "\r\n" in raw
     text = raw.replace("\r\n", "\n")
+    before = text
     for old, new in pairs:
         if new in text:
             continue
         if old not in text:
             raise SystemExit("not found in " + path + ": " + old[:70])
         text = text.replace(old, new, 1)
-    io.open(path, "w", encoding="utf-8", newline="").write(text.replace("\n", "\r\n") if crlf else text)
+    # A file that has everything already is left alone: external/ is one folder that every copy shares, and the
+    # build of another copy may be reading it.
+    if text != before:
+        io.open(path, "w", encoding="utf-8", newline="").write(text.replace("\n", "\r\n") if crlf else text)
 
 
 def main():
@@ -39,6 +43,47 @@ def main():
                 "    // Generic memory bench: the caller's file and line name the allocation in the bench counters.\n"
                 "    void* MetadataMalloc(size_t size, const char* file = __builtin_FILE(), int line = __builtin_LINE());\n"
                 "    void* MetadataCalloc(size_t count, size_t size, const char* file = __builtin_FILE(), int line = __builtin_LINE());",
+            ),
+        ],
+    )
+    # Every class and method the runtime makes is kept by its address, to be named when the run is over. Each statement goes
+    # on a line that is there already, so that the lines of the allocations below keep the numbers the reports know them by.
+    edit(
+        os.path.join(lib, "vm", "MetadataAlloc.h"),
+        [('#include "il2cpp-config.h"\nstruct Il2CppGenericClass;', '#include "il2cpp-config.h"\n#include "utils/GenericMemoryCounters.h"\nstruct Il2CppGenericClass;')],
+    )
+    edit(
+        os.path.join(lib, "vm", "GenericClass.cpp"),
+        [
+            (
+                "definition->vtable_count));\n            klass->klass = klass;\n",
+                "definition->vtable_count));\n            klass->klass = klass; generic_memory::Record(generic_memory::kMadeClass, klass);\n",
+            ),
+        ],
+    )
+    edit(
+        os.path.join(lib, "metadata", "ArrayMetadata.cpp"),
+        [
+            (
+                "(slots * sizeof(VirtualInvokeData)));\n        klass->klass = klass;\n",
+                "(slots * sizeof(VirtualInvokeData)));\n        klass->klass = klass; generic_memory::Record(generic_memory::kMadeClass, klass);\n",
+            ),
+            (
+                "        method->klass = declaringType;\n",
+                "        method->klass = declaringType; generic_memory::Record(generic_memory::kMadeMethod, method);\n",
+            ),
+            (
+                "        inflatedMethod->name = genericArrayMethod.name;\n",
+                "        inflatedMethod->name = genericArrayMethod.name; generic_memory::Record(generic_memory::kMadeMethod, inflatedMethod);\n",
+            ),
+        ],
+    )
+    edit(
+        os.path.join(lib, "metadata", "GenericMethod.cpp"),
+        [
+            (
+                "    return (MethodInfo*)MetadataCalloc(1, SizeOfGenericMethodInfo(hasFullGenericSignature));\n",
+                "    MethodInfo* made = (MethodInfo*)MetadataCalloc(1, SizeOfGenericMethodInfo(hasFullGenericSignature)); generic_memory::Record(generic_memory::kMadeMethod, made); return made;\n",
             ),
         ],
     )
@@ -137,6 +182,10 @@ def main():
                 "DO_API(uint64_t, il2cpp_stats_get_value, (Il2CppStat stat));\n\n"
                 "// Generic memory bench: the bench counters\nDO_API(void, il2cpp_generic_memory_snapshot, ());\nDO_API(bool, il2cpp_generic_memory_dump, (const char *path));",
             ),
+            (
+                "DO_API(bool, il2cpp_generic_memory_dump, (const char *path));",
+                "DO_API(bool, il2cpp_generic_memory_dump, (const char *path));\nDO_API(bool, il2cpp_generic_memory_names, (const char *path));",
+            ),
         ],
     )
     edit(
@@ -148,6 +197,28 @@ def main():
                 "// Generic memory bench: the bench counters\n\nvoid il2cpp_generic_memory_snapshot()\n{\n    generic_memory::Snapshot();\n}\n\n"
                 "bool il2cpp_generic_memory_dump(const char *path)\n{\n    return generic_memory::Dump(path);\n}\n\n"
                 "// stats\n\nextern Il2CppRuntimeStats il2cpp_runtime_stats;",
+            ),
+            # The names of what was made since the snapshot: a class with its size, a method with the class it belongs to.
+            # They go below the line the edit above ends with, so that what that edit put in stays as it wrote it and is
+            # found again when this runs a second time.
+            (
+                "extern Il2CppRuntimeStats il2cpp_runtime_stats;\n",
+                "extern Il2CppRuntimeStats il2cpp_runtime_stats;\n\n"
+                "static void il2cpp_generic_memory_describe(FILE* out, int kind, const void* what)\n{\n"
+                "    if (kind == generic_memory::kMadeClass)\n    {\n"
+                "        const Il2CppClass* klass = (const Il2CppClass*)what;\n"
+                "        std::string name = il2cpp::vm::Type::GetName(&klass->byval_arg, IL2CPP_TYPE_NAME_FORMAT_FULL_NAME);\n"
+                "        fprintf(out, \"class\\t%p\\t%s\\t%u\\t%u\\t%u\\t%u\\t%d\\t%d\\n\", what, name.c_str(),\n"
+                "            (unsigned)(sizeof(Il2CppClass) + klass->vtable_count * sizeof(VirtualInvokeData)), (unsigned)klass->vtable_count,\n"
+                "            (unsigned)klass->method_count, (unsigned)klass->interfaces_count, klass->initialized ? 1 : 0, klass->methods != NULL ? 1 : 0);\n"
+                "    }\n    else\n    {\n"
+                "        const MethodInfo* method = (const MethodInfo*)what;\n"
+                "        std::string name = method->klass != NULL ? il2cpp::vm::Type::GetName(&method->klass->byval_arg, IL2CPP_TYPE_NAME_FORMAT_FULL_NAME) : std::string(\"?\");\n"
+                "        bool generic = method->is_inflated && method->genericMethod != NULL && method->genericMethod->context.method_inst != NULL;\n"
+                "        fprintf(out, \"method\\t%p\\t%s\\t%s\\t%u\\t%d\\t%u\\t%u\\n\", what, name.c_str(), method->name != NULL ? method->name : \"?\",\n"
+                "            (unsigned)method->parameters_count, generic ? 1 : 0, (unsigned)method->flags, (unsigned)method->slot);\n"
+                "    }\n}\n\n"
+                "bool il2cpp_generic_memory_names(const char *path)\n{\n    return generic_memory::Names(path, il2cpp_generic_memory_describe);\n}\n",
             ),
         ],
     )

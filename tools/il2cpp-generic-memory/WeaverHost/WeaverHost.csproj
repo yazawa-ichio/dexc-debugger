@@ -14,6 +14,9 @@
     <Compile Remove="src/**" />
     <Compile Include="../../../Assets/Tests/GenericMemory/Editor/GenericMemoryWeaver.cs" Link="Weaver/GenericMemoryWeaver.cs" />
     <Compile Include="../../../Assets/Tests/GenericMemory/Editor/Canonicalizer.cs" Link="Weaver/Canonicalizer.cs" />
+    <Compile Include="../../../Assets/Tests/GenericMemory/Editor/CanonicalizerLocals.cs" Link="Weaver/CanonicalizerLocals.cs" />
+    <Compile Include="../../../Assets/Tests/GenericMemory/Editor/LinqSharer.cs" Link="Weaver/LinqSharer.cs" />
+    <Compile Include="../../../Assets/Tests/GenericMemory/Editor/Verifier.cs" Link="Weaver/Verifier.cs" />
     <Compile Include="../../../Assets/Tests/GenericMemory/Editor/AsyncEraser.cs" Link="Weaver/AsyncEraser.cs" />
   </ItemGroup>
 </Project>

@@ -8,7 +8,11 @@ turns this one on in the Player.
 What it changes:
 - A generic instance and an array get the slots of their interfaces left empty. The pair that names the interface has
   the low bit of its pointer set, so the lookup the generated code inlines does not find it and falls to its slow path.
-- The slow path fills the slots of that one interface and then stores the plain pointer.
+- The slow path fills the slots of that one interface, then gives the class a copy of its pairs in which that pair
+  names the interface plainly. The readers take no lock, and what tells one of them that the slots are there has to
+  be what it computes their address from: it reads the pairs through the pointer the class holds, the offset out of
+  the pair, and the slot at that offset. A pointer that was changed in place would not order the read of the slot
+  behind it on ARM, where two reads joined only by a branch may run in either order.
 - A slot that a call through the class can reach (a virtual method that is not both final and new) is filled as before,
   so the inlined vtable read of a virtual call is untouched.
 Each edit names the text it expects, so a Unity version that changed the source stops here instead of building wrong.
@@ -47,7 +51,7 @@ MACROS = """// Lazy interface slots: a pair whose interfaceType has its low bit 
 """
 
 CLASS_HELPERS = """    // Lazy interface slots: what SetupVTable did for each slot of a generic instance.
-    static void SetupGenericVTableSlot(Il2CppClass* klass, Il2CppClass* genericTypeDefinition, Il2CppGenericContext* context, uint16_t i, const il2cpp::os::FastAutoLock& lock)
+    static void SetupGenericVTableSlot(Il2CppClass* klass, Il2CppClass* genericTypeDefinition, Il2CppGenericContext* context, uint16_t i, VirtualInvokeData& target, const il2cpp::os::FastAutoLock& lock)
     {
 %s    }
 
@@ -80,9 +84,10 @@ CLASS_HELPERS = """    // Lazy interface slots: what SetupVTable did for each sl
 
     static bool IsLazySlot(const Il2CppClass* klass, int32_t slot)
     {
+        const Il2CppRuntimeInterfaceOffsetPair* pairs = klass->interfaceOffsets;
         for (uint16_t i = 0; i < klass->interface_offsets_count; i++)
         {
-            const Il2CppRuntimeInterfaceOffsetPair* pair = klass->interfaceOffsets + i;
+            const Il2CppRuntimeInterfaceOffsetPair* pair = pairs + i;
             if (!IL2CPP_LAZY_INTERFACE_PENDING(pair->interfaceType))
                 continue;
             if (slot >= pair->offset && slot < pair->offset + IL2CPP_LAZY_INTERFACE_CLASS(pair->interfaceType)->method_count)
@@ -100,33 +105,53 @@ CLASS_HELPERS = """    // Lazy interface slots: what SetupVTable did for each sl
     void Class::ResolveLazyInterface(Il2CppClass* klass, uint16_t index)
     {
         il2cpp::os::FastAutoLock lock(&g_MetadataLock);
-        Il2CppRuntimeInterfaceOffsetPair* pair = klass->interfaceOffsets + index;
-        if (!IL2CPP_LAZY_INTERFACE_PENDING(pair->interfaceType))
+        Il2CppRuntimeInterfaceOffsetPair* pairs = klass->interfaceOffsets;
+        if (!IL2CPP_LAZY_INTERFACE_PENDING(pairs[index].interfaceType))
             return;
 
-        Il2CppClass* itf = IL2CPP_LAZY_INTERFACE_CLASS(pair->interfaceType);
+        Il2CppClass* itf = IL2CPP_LAZY_INTERFACE_CLASS(pairs[index].interfaceType);
+        const int32_t first = pairs[index].offset;
+        const uint16_t count = itf->method_count;
+
+        // The slots are made aside. A slot that nothing fills keeps what it holds.
+        std::vector<VirtualInvokeData> filled(klass->vtable + first, klass->vtable + first + count);
         if (klass->rank)
         {
-            il2cpp::metadata::ArrayMetadata::FillLazyInterface(klass, index, itf);
+            il2cpp::metadata::ArrayMetadata::FillLazyInterface(klass, itf, &filled[0]);
         }
         else
         {
             Il2CppClass* genericTypeDefinition = GenericClass::GetTypeDefinition(klass->generic_class);
             Il2CppGenericContext* context = &klass->generic_class->context;
-            for (int32_t slot = pair->offset; slot < pair->offset + itf->method_count; slot++)
-                SetupGenericVTableSlot(klass, genericTypeDefinition, context, (uint16_t)slot, lock);
+            for (uint16_t at = 0; at < count; at++)
+                SetupGenericVTableSlot(klass, genericTypeDefinition, context, (uint16_t)(first + at), filled[at], lock);
         }
 
-        // The readers take no lock: the slots are complete before the pair names the interface.
+        // A reader that finds a method in a slot goes on to read the method, so the methods are complete in memory
+        // before any slot names one.
         il2cpp::os::Atomic::FullMemoryBarrier();
-        il2cpp::os::Atomic::ExchangePointer(&pair->interfaceType, itf);
+        for (uint16_t at = 0; at < count; at++)
+        {
+            klass->vtable[first + at].methodPtr = filled[at].methodPtr;
+            klass->vtable[first + at].method = filled[at].method;
+        }
+
+        // The readers take no lock. They get a copy of the pairs in which this one names the interface plainly, and
+        // they get it through the pointer of the class: whoever reads the new pairs computes the address of the slot
+        // from what it read there, so it reads the slot after them, and the slots were complete before the copy was shown.
+        Il2CppRuntimeInterfaceOffsetPair* resolved = (Il2CppRuntimeInterfaceOffsetPair*)MetadataMalloc(klass->interface_offsets_count * sizeof(Il2CppRuntimeInterfaceOffsetPair));
+        memcpy(resolved, pairs, klass->interface_offsets_count * sizeof(Il2CppRuntimeInterfaceOffsetPair));
+        resolved[index].interfaceType = itf;
+        il2cpp::os::Atomic::FullMemoryBarrier();
+        il2cpp::os::Atomic::ExchangePointer(&klass->interfaceOffsets, resolved);
     }
 
     const MethodInfo* Class::ResolveLazySlot(Il2CppClass* klass, Il2CppMethodSlot slot)
     {
+        const Il2CppRuntimeInterfaceOffsetPair* pairs = klass->interfaceOffsets;
         for (uint16_t i = 0; i < klass->interface_offsets_count; i++)
         {
-            const Il2CppRuntimeInterfaceOffsetPair* pair = klass->interfaceOffsets + i;
+            const Il2CppRuntimeInterfaceOffsetPair* pair = pairs + i;
             if (!IL2CPP_LAZY_INTERFACE_PENDING(pair->interfaceType))
                 continue;
             if (slot >= pair->offset && slot < pair->offset + IL2CPP_LAZY_INTERFACE_CLASS(pair->interfaceType)->method_count)
@@ -159,7 +184,7 @@ NEW_LOOP = (
     "                        klass->vtable[i].methodPtr = (Il2CppMethodPointer)&Class::LazyInterfaceTrap;\n"
     "                        continue;\n"
     "                    }\n"
-    "                    SetupGenericVTableSlot(klass, genericTypeDefinition, context, i, lock);\n"
+    "                    SetupGenericVTableSlot(klass, genericTypeDefinition, context, i, klass->vtable[i], lock);\n"
 )
 
 
@@ -172,6 +197,10 @@ def class_cpp(path):
         body = text[body_start:end]
         # The body of the loop becomes the body of a function: 20 spaces in, 8 spaces out.
         dedented = "".join((line[12:] if line.startswith(" " * 12) else line) + "\n" for line in body.split("\n")[:-1])
+        # It fills the slot it is handed, which at initialization is the one in the vtable.
+        if dedented.count("klass->vtable[i]") != 6:
+            raise SystemExit("the loop of SetupVTable does not write the slot the way this expects: " + path)
+        dedented = dedented.replace("klass->vtable[i]", "target")
         text = text[:start] + NEW_LOOP + text[end:]
         if SETUP_VTABLE not in text:
             raise SystemExit("not found in " + path + ": SetupVTable")
@@ -203,6 +232,7 @@ def class_cpp(path):
                 "}\n\n"
                 "namespace il2cpp\n{\nnamespace vm\n{\n",
             ),
+            ("#include <limits>\n", "#include <limits>\n#include <vector>\n"),
         ],
     )
 
@@ -255,9 +285,10 @@ def main():
                 "                {\n",
                 "        // Lazy interface slots: the inlined lookup does not see an interface whose slots are still empty. The pair is\n"
                 "        // matched whether it is still marked or not: another thread may have filled it since the inlined lookup missed.\n"
+                "        const Il2CppRuntimeInterfaceOffsetPair* lazyPairs = klass->interfaceOffsets;\n"
                 "        for (uint16_t i = 0; i < klass->interface_offsets_count; ++i)\n"
                 "        {\n"
-                "            const Il2CppRuntimeInterfaceOffsetPair* pair = klass->interfaceOffsets + i;\n"
+                "            const Il2CppRuntimeInterfaceOffsetPair* pair = lazyPairs + i;\n"
                 "            Il2CppClass* exact = pair->interfaceType;\n"
                 "            if (IL2CPP_LAZY_INTERFACE_CLASS(exact) == itf)\n"
                 "            {\n"
@@ -287,7 +318,7 @@ def main():
                 "        static void SetupArrayVTable(Il2CppClass* klass, const il2cpp::os::FastAutoLock& lock);\n",
                 "        static void SetupArrayVTable(Il2CppClass* klass, const il2cpp::os::FastAutoLock& lock);\n"
                 "        // Lazy interface slots: makes the methods of one of the interfaces an array implements\n"
-                "        static void FillLazyInterface(Il2CppClass* klass, uint16_t index, Il2CppClass* interfaceType);\n",
+                "        static void FillLazyInterface(Il2CppClass* klass, Il2CppClass* interfaceType, VirtualInvokeData* slots);\n",
             ),
         ],
     )
@@ -325,7 +356,7 @@ def main():
             ),
             (
                 "    void ArrayMetadata::SetupArrayVTable(Il2CppClass* klass, const FastAutoLock& lock)\n",
-                "    void ArrayMetadata::FillLazyInterface(Il2CppClass* klass, uint16_t index, Il2CppClass* interfaceType)\n"
+                "    void ArrayMetadata::FillLazyInterface(Il2CppClass* klass, Il2CppClass* interfaceType, VirtualInvokeData* slots)\n"
                 "    {\n"
                 "        // One interface of PopulateArrayGenericMethods.\n"
                 "        if (!interfaceType->generic_class)\n"
@@ -343,9 +374,8 @@ def main():
                 "                continue;\n"
                 "\n"
                 "            MethodInfo* arrayMethod = ConstructGenericArrayMethod(*iter, klass, &context);\n"
-                "            size_t vtableIndex = klass->interfaceOffsets[index].offset + iter->interfaceMethodDefinition->slot;\n"
-                "            klass->vtable[vtableIndex].method = arrayMethod;\n"
-                "            klass->vtable[vtableIndex].methodPtr = arrayMethod->virtualMethodPointer;\n"
+                "            slots[iter->interfaceMethodDefinition->slot].method = arrayMethod;\n"
+                "            slots[iter->interfaceMethodDefinition->slot].methodPtr = arrayMethod->virtualMethodPointer;\n"
                 "        }\n"
                 "    }\n"
                 "\n"

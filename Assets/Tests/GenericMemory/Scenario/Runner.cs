@@ -20,6 +20,8 @@ namespace GenericMemory
 	/// <see cref="ComparerChecks"/>, and -generic-memory-interface-bench
 	/// times the kernels of <see cref="InterfaceBench"/>; -generic-memory-speed-bench those of <see cref="SpeedBench"/>.
 	/// -generic-memory-reflection writes the lines of <see cref="ReflectionChecks"/>.
+	/// -generic-memory-sharing runs <see cref="SharingChecks"/>, like -generic-memory-interfaces.
+	/// With -generic-memory-names a measured pattern also writes, beside its output, every class and method the runtime made.
 	/// </summary>
 	public sealed class Runner : MonoBehaviour
 	{
@@ -44,6 +46,10 @@ namespace GenericMemory
 		[return: MarshalAs(UnmanagedType.U1)]
 		static extern bool il2cpp_generic_memory_dump([MarshalAs(UnmanagedType.LPStr)] string path);
 
+		[DllImport("__Internal")]
+		[return: MarshalAs(UnmanagedType.U1)]
+		static extern bool il2cpp_generic_memory_names([MarshalAs(UnmanagedType.LPStr)] string path);
+
 		string _pattern;
 		int _count;
 		string _output;
@@ -53,6 +59,7 @@ namespace GenericMemory
 		bool _interfaceBench;
 		bool _speedBench;
 		bool _comparers;
+		bool _sharing;
 		bool _reflection;
 		int _frame;
 		int _ranAt = -1;
@@ -109,8 +116,9 @@ namespace GenericMemory
 			_interfaceBench = Array.IndexOf(args, "-generic-memory-interface-bench") >= 0;
 			_speedBench = Array.IndexOf(args, "-generic-memory-speed-bench") >= 0;
 			_comparers = Array.IndexOf(args, "-generic-memory-comparers") >= 0;
+			_sharing = Array.IndexOf(args, "-generic-memory-sharing") >= 0;
 			_reflection = Array.IndexOf(args, "-generic-memory-reflection") >= 0;
-			if (_checks || _interfaces || _interfaceBench || _speedBench || _comparers || _reflection)
+			if (_checks || _interfaces || _interfaceBench || _speedBench || _comparers || _sharing || _reflection)
 			{
 				_pattern = "Checks";
 			}
@@ -176,7 +184,7 @@ namespace GenericMemory
 				}
 				return;
 			}
-			if (_interfaces || _comparers)
+			if (_interfaces || _comparers || _sharing)
 			{
 				if (_frame == 5)
 				{
@@ -186,6 +194,11 @@ namespace GenericMemory
 					{
 						InterfaceChecks.Run(text);
 						failed += InterfaceChecks.Failed;
+					}
+					if (_sharing)
+					{
+						SharingChecks.Run(text);
+						failed += SharingChecks.Failed;
 					}
 					if (_comparers)
 					{
@@ -346,6 +359,11 @@ namespace GenericMemory
 				File.Delete(dump);
 			}
 			File.WriteAllText(_output, text.ToString());
+			// Last of all, because naming a type can make the runtime allocate: every class and method made since the snapshot.
+			if (Array.IndexOf(Environment.GetCommandLineArgs(), "-generic-memory-names") >= 0)
+			{
+				il2cpp_generic_memory_names(_output + ".names");
+			}
 		}
 
 		static ulong[] Stats()

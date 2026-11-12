@@ -938,6 +938,12 @@ namespace GenericMemory
 				{
 					hash = Fnv(hash, constructor.Name + constructor.GetParameters().Length);
 				}
+				// The interfaces, sorted: the runtime gives them in the order of their addresses.
+				foreach (var implemented in type.GetInterfaces().Select(listed => listed.ToString()).OrderBy(name => name, StringComparer.Ordinal))
+				{
+					hash = Fnv(hash, implemented);
+				}
+				hash = Fnv(hash, typeof(IEnumerable).IsAssignableFrom(type) ? "enumerable" : "not");
 			}
 			return hash;
 		}
@@ -952,8 +958,25 @@ namespace GenericMemory
 			sum += contains(seed) ? 1 : 0;
 			IList<T> asList = list;
 			sum += asList.Count;
+			// Each of these is the first call through its interface for this T, on every thread of the race at once.
+			IEnumerable<T> asEnumerable = list;
+			foreach (var item in asEnumerable)
+			{
+				sum += item == null ? 0 : 1;
+			}
+			IReadOnlyList<T> asReadOnly = list;
+			sum += asReadOnly.Count + (ReferenceEquals(asReadOnly[1], seed) ? 1 : 0);
+			object boxed = list;
+			sum += boxed is ICollection<T> ? 1 : 0;
+			var array = new[] { seed, seed };
+			IList<T> arrayAsList = array;
+			sum += arrayAsList.IndexOf(seed) + arrayAsList.Count;
+			IReadOnlyCollection<T> arrayAsCollection = array;
+			sum += arrayAsCollection.Count;
 			var dictionary = new Dictionary<T, int> { { seed, 11 } };
 			sum += dictionary[seed];
+			ICollection<KeyValuePair<T, int>> pairs = dictionary;
+			sum += pairs.Count;
 			var set = new HashSet<T> { seed };
 			sum += set.Count;
 			var own = new Own<T>(seed);

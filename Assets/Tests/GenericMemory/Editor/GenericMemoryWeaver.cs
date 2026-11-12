@@ -17,8 +17,21 @@ namespace GenericMemory.Editor
 			var log = new StringBuilder();
 			using (var program = WholeProgram.Load(folder))
 			{
-				foreach (var step in steps)
+				for (var at = 0; at < steps.Length; at++)
 				{
+					var step = steps[at];
+					if (Canonicalizer.IsStep(step))
+					{
+						// The steps of the canonicalizer that follow each other run as one pass over the program, with what each asks for.
+						var asked = new HashSet<string>();
+						for (; at < steps.Length && Canonicalizer.IsStep(steps[at]); at++)
+						{
+							asked.Add(steps[at]);
+						}
+						at--;
+						new Canonicalizer(program, log, asked).Run();
+						continue;
+					}
 					switch (step)
 					{
 						case "hoist":
@@ -27,14 +40,11 @@ namespace GenericMemory.Editor
 						case "hoistall":
 							new Hoister(program, log, true).Run();
 							break;
-						case "canon":
-							new Canonicalizer(program, log).Run();
-							break;
-						case "comparers":
-							new Canonicalizer(program, log, true).Run();
-							break;
 						case "async":
 							new AsyncEraser(program, log).Run();
+							break;
+						case "linq":
+							new LinqSharer(program, log).Run();
 							break;
 						case "unitask":
 							// Names a build whose difference is in the source of UniTask, not in a rewrite.
@@ -43,6 +53,7 @@ namespace GenericMemory.Editor
 							throw new ArgumentException("unknown step " + step);
 					}
 				}
+				Verifier.Run(program, log);
 				program.Save(log);
 			}
 			return log.ToString();
@@ -58,6 +69,18 @@ namespace GenericMemory.Editor
 		readonly HashSet<MethodDefinition> _resized = new HashSet<MethodDefinition>();
 
 		public IEnumerable<AssemblyDefinition> Assemblies => _paths.Keys;
+
+		/// <summary>The bodies that instructions were put into.</summary>
+		public IEnumerable<MethodDefinition> ResizedMethods => _resized;
+
+		/// <summary>Says that the body of a method is now the body of another, so that what is known of the body goes with it.</summary>
+		public void Moved(MethodDefinition from, MethodDefinition to)
+		{
+			if (_resized.Remove(from))
+			{
+				_resized.Add(to);
+			}
+		}
 
 		public static WholeProgram Load(string folder)
 		{
@@ -279,7 +302,7 @@ namespace GenericMemory.Editor
 		}
 
 		// The engine's own assemblies are left as they are: the native side finds some of their members by name.
-		static bool InScope(string assembly)
+		internal static bool InScope(string assembly)
 		{
 			return !assembly.StartsWith("UnityEngine", StringComparison.Ordinal)
 				&& !assembly.StartsWith("Unity.", StringComparison.Ordinal)
@@ -427,6 +450,7 @@ namespace GenericMemory.Editor
 				created.CustomAttributes.Add(attribute);
 			}
 			old.Body = new MethodBody(old);
+			_program.Moved(old, created);
 			_moved[old] = created;
 			_program.Touch(module);
 		}

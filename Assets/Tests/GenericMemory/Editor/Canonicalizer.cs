@@ -25,7 +25,7 @@ namespace GenericMemory.Editor
 	/// what a search in a list or an array costs most: it is made once for each element type that is searched. This form
 	/// also reaches the methods of a generic class, which are called on the object as an instance over the stand-in.
 	/// </summary>
-	sealed class Canonicalizer
+	sealed partial class Canonicalizer
 	{
 		const byte Observed = 0;
 		const byte ComparerOnly = 1;
@@ -50,11 +50,35 @@ namespace GenericMemory.Editor
 		readonly Dictionary<string, int[]> _comparerSites = new Dictionary<string, int[]>();
 		readonly Dictionary<string, int> _keptBy = new Dictionary<string, int>();
 
+		// "free": a method of a generic class that cannot tell its type argument is called on the object as the instance over
+		// the stand-in. That gains something only where a method is made when it is first used, not with its class.
+		readonly bool _shareFree;
+		// "enum": a local of a generic struct that only this method sees, such as the enumerator of a foreach, becomes the
+		// instance over the stand-in, and so do the call that makes it and the calls on it.
+		readonly bool _shareLocals;
+
+		// What the two steps above need the reading of a body to tell apart, which the older steps did not.
+		bool Extended => _shareFree || _shareLocals;
+
+		public static bool IsStep(string step)
+		{
+			return step == "canon" || step == "comparers" || step == "free" || step == "enum";
+		}
+
 		public Canonicalizer(WholeProgram program, StringBuilder log, bool comparers = false)
 		{
 			_program = program;
 			_log = log;
 			_comparers = comparers;
+		}
+
+		public Canonicalizer(WholeProgram program, StringBuilder log, HashSet<string> steps)
+		{
+			_program = program;
+			_log = log;
+			_comparers = steps.Contains("comparers");
+			_shareFree = steps.Contains("free");
+			_shareLocals = steps.Contains("enum");
 		}
 
 		public void Run()
@@ -70,7 +94,8 @@ namespace GenericMemory.Editor
 				}
 				var freedom = new Freedom { OfType = new byte[type.GenericParameters.Count], OfMethod = new byte[method.GenericParameters.Count] };
 				// A static member of a generic class belongs to one instance of the class, and so does what a constructor makes.
-				var ofType = !method.IsStatic && !method.IsConstructor;
+				// The constructor of a struct makes no object: it fills the value it is handed, like any other method of the struct.
+				var ofType = !method.IsStatic && (!method.IsConstructor || (Extended && type.IsValueType));
 				for (var at = 0; at < freedom.OfType.Length; at++)
 				{
 					freedom.OfType[at] = ofType ? Free : Observed;
@@ -99,6 +124,10 @@ namespace GenericMemory.Editor
 			if (_comparers)
 			{
 				FindComparerUses();
+			}
+			if (_shareLocals)
+			{
+				RetypeLocals();
 			}
 
 			var sites = 0;
@@ -181,7 +210,7 @@ namespace GenericMemory.Editor
 							}
 						}
 					}
-					else if (_comparers && isCall && !prefixed && !(target is GenericInstanceMethod) && target.DeclaringType is GenericInstanceType declaring)
+					else if ((_comparers || _shareFree) && isCall && !prefixed && !(target is GenericInstanceMethod) && target.DeclaringType is GenericInstanceType declaring)
 					{
 						// A method of a generic class, called on the object as an instance over the stand-in.
 						callee = Resolve(target);
@@ -200,8 +229,12 @@ namespace GenericMemory.Editor
 					}
 				}
 			}
-			_log.AppendLine((_comparers ? "canon with comparers: " : "canon: ") + _free.Count(pair => pair.Value.OfMethod.Any(level => level == Free)) + " generic methods have a free parameter; "
+			_log.AppendLine((_comparers ? "canon with comparers: " : "canon: ") + (_shareFree ? "(free) " : "") + (_shareLocals ? "(enum) " : "") + _free.Count(pair => pair.Value.OfMethod.Any(level => level == Free)) + " generic methods have a free parameter; "
 				+ sites + " call sites of generic methods and " + onObjects + " of methods of generic classes, " + methods.Count + " methods in all, now share an instance");
+			if (_shareFree)
+			{
+				_log.AppendLine("  of the calls of methods of generic classes, " + _freeSites + " share a method that cannot tell its type argument");
+			}
 			foreach (var group in methods.GroupBy(method => method.DeclaringType.FullName).OrderByDescending(group => group.Count()).Take(25))
 			{
 				_log.AppendLine("  " + group.Key + ": " + string.Join(" ", group.Select(method => method.Name).Distinct().Take(12)));
@@ -389,11 +422,26 @@ namespace GenericMemory.Editor
 				return false;
 			}
 			var gain = false;
+			var returned = false;
+			var freely = false;
 			for (var at = 0; at < replaced.Length; at++)
 			{
 				var argument = declaring.GenericArguments[at];
-				// A parameter that is wholly free gains nothing here: the method is made with the class either way.
-				if (freedom.OfType[at] != ComparerOnly || !Shares(ComparerOnly, argument, callee.ReturnType, GenericParameterType.Type, at))
+				if (freedom.OfType[at] == Free)
+				{
+					// A parameter that is wholly free gains nothing where the method is made with its class either way.
+					// Where a method is made when it is first used, the one of the stand-in is made once for all.
+					if (!_shareFree || !IsReference(argument) || argument.ContainsGenericParameter || !Shareable(callee.DeclaringType, at))
+					{
+						continue;
+					}
+					// What comes back as the type gets a cast, which needs a reference; a struct made of it has none.
+					if (Mentions(callee.ReturnType, GenericParameterType.Type, at) && !Castable(callee.ReturnType))
+					{
+						continue;
+					}
+				}
+				else if (freedom.OfType[at] != ComparerOnly || !Shares(ComparerOnly, argument, callee.ReturnType, GenericParameterType.Type, at))
 				{
 					continue;
 				}
@@ -401,8 +449,14 @@ namespace GenericMemory.Editor
 				{
 					continue;
 				}
+				if (Extended && argument.FullName == StandIn(callee.DeclaringType.GenericParameters[at], caller.Module).FullName)
+				{
+					continue;
+				}
 				replaced[at] = true;
 				gain = true;
+				freely |= freedom.OfType[at] == Free;
+				returned |= Mentions(callee.ReturnType, GenericParameterType.Type, at);
 			}
 			if (!gain)
 			{
@@ -471,9 +525,63 @@ namespace GenericMemory.Editor
 			}
 			il.InsertAfter(last, call);
 			Touches(caller, call, needed, false);
+			if (returned)
+			{
+				// What comes back is an object that was there before the call, so the cast states a fact and gives it its type back.
+				il.InsertAfter(call, Instruction.Create(OpCodes.Castclass, module.ImportReference(InContext(callee.ReturnType, declaring), caller)));
+			}
+			if (freely)
+			{
+				_freeSites++;
+			}
 			_program.Resized(caller);
 			_program.Touch(module);
 			return true;
+		}
+
+		int _freeSites;
+
+		/// <summary>
+		/// Whether the steps "free" and "enum" may run a method of this type for the stand-in of this parameter. The types of
+		/// the engine's own assemblies are left alone, as the hoister leaves them: a Player of the bench does not run their
+		/// code paths, so nothing here would show a mistake. A parameter whose constraint names the parameter itself or
+		/// another instance (where T : Base&lt;T&gt;) is left alone too: object does not meet such a constraint.
+		/// </summary>
+		static bool Shareable(TypeDefinition type, int position)
+		{
+			if (!Hoister.InScope(type.Module.Assembly.Name.Name) || position >= type.GenericParameters.Count)
+			{
+				return false;
+			}
+			return !type.GenericParameters[position].Constraints.Any(constraint => constraint.ConstraintType is TypeSpecification || constraint.ConstraintType is GenericParameter);
+		}
+
+		/// <summary>Whether a value of this type, of the signature of a method, is a reference, which a cast can give its type back.</summary>
+		static bool Castable(TypeReference type)
+		{
+			switch (type)
+			{
+				case GenericParameter _:
+				case ArrayType _:
+					return true;
+				case GenericInstanceType instance:
+				{
+					var definition = instance.ElementType.Resolve();
+					return definition != null && !definition.IsValueType;
+				}
+				default:
+					return false;
+			}
+		}
+
+		static bool IsValueTypeInstance(TypeReference type)
+		{
+			if (!(type is GenericInstanceType instance))
+			{
+				return false;
+			}
+			var definition = instance.ElementType.Resolve();
+			return definition != null && definition.IsValueType;
 		}
 
 		/// <summary>A type of the signature of a method of a generic class as the caller sees it: the parameters of the class replaced by its arguments.</summary>
@@ -713,6 +821,11 @@ namespace GenericMemory.Editor
 			_shared.Methods.Add(initializer);
 
 			_sharedAs = new MethodDefinition("As", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, parameter);
+			if (Extended)
+			{
+				// il2cpp then writes the body into the caller. The check that the static constructor ran is written at the call, and stays.
+				_sharedAs.ImplAttributes = MethodImplAttributes.AggressiveInlining;
+			}
 			_sharedAs.Parameters.Add(new ParameterDefinition("value", ParameterAttributes.None, module.TypeSystem.Object));
 			il = _sharedAs.Body.GetILProcessor();
 			il.Emit(OpCodes.Ldarg_0);
@@ -720,6 +833,10 @@ namespace GenericMemory.Editor
 			_shared.Methods.Add(_sharedAs);
 
 			_touch = new MethodDefinition("Touch", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, module.TypeSystem.Void);
+			if (Extended)
+			{
+				_touch.ImplAttributes = MethodImplAttributes.AggressiveInlining;
+			}
 			_touch.Body.GetILProcessor().Emit(OpCodes.Ret);
 			_shared.Methods.Add(_touch);
 
@@ -764,7 +881,9 @@ namespace GenericMemory.Editor
 						// Really dispatched: the target runs as the class of the object, which exists and so was initialized.
 						continue;
 					}
-					if (!callee.IsStatic && declaring != null && declaring.ContainsGenericParameter)
+					// The generated code of a method of a struct asks for its class each time (InitializedTypeInfo(method->klass)):
+					// it cannot take an object for granted. So only the methods of classes need their instance made ready.
+					if (!callee.IsStatic && declaring != null && declaring.ContainsGenericParameter && !(Extended && callee.DeclaringType.IsValueType))
 					{
 						Need(method, declaring);
 					}
@@ -1020,6 +1139,12 @@ namespace GenericMemory.Editor
 						switch (code)
 						{
 							case Code.Box:
+								// A boxed struct is an object of one exact instance. (Boxing the parameter itself, a reference, does nothing.)
+								if (Extended && !(type is GenericParameter))
+								{
+									return Observed;
+								}
+								break;
 							case Code.Initobj:
 							case Code.Ldobj:
 							case Code.Stobj:
@@ -1028,6 +1153,11 @@ namespace GenericMemory.Editor
 							case Code.Stelem_Any:
 								break;
 							case Code.Ldelema:
+								// The address of an element that is a struct is taken without asking what the array is an array of.
+								if (Extended && IsValueTypeInstance(type))
+								{
+									break;
+								}
 								if (instruction.Previous == null || instruction.Previous.OpCode != OpCodes.Readonly)
 								{
 									return Observed;
@@ -1083,6 +1213,21 @@ namespace GenericMemory.Editor
 			}
 			if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt)
 			{
+				if (Extended && instruction.OpCode == OpCodes.Newobj && declared && !passed && declaring != null)
+				{
+					// A struct that is made is a value, not an object: its type is only what the code that holds it says.
+					// So this is a direct call of the constructor, with the context the caller names.
+					var constructor = Resolve(target);
+					if (constructor != null && constructor.DeclaringType.IsValueType && _free.TryGetValue(constructor, out var made))
+					{
+						var free = Free;
+						for (var at = 0; at < declaring.GenericArguments.Count && at < made.OfType.Length; at++)
+						{
+							free = Passed(free, declaring.GenericArguments[at], made.OfType[at], kind, position);
+						}
+						return free;
+					}
+				}
 				// newobj, ldftn, ldtoken: an object or a pointer of one exact instance.
 				return Observed;
 			}
