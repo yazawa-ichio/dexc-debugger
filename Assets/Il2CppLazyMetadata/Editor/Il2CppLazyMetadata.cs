@@ -1,10 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
+using UnityEditor.Compilation;
 using UnityEngine;
 
 namespace Il2CppLazy
@@ -15,16 +15,19 @@ namespace Il2CppLazy
 	/// Xcode compiles it, so the source is changed there, after Unity has written the project. Nothing of the Editor's
 	/// installation is touched, and the C# and the IL of the game stay as they are.
 	///
-	/// Two changes, each a fixed set of replacements that stops the build when the text it expects is not there:
-	/// - methods: Class::InitLocked no longer inflates every method, property and event of a generic instance. The
-	///   runtime already makes them on demand wherever it reads them.
-	/// - rgctx: an entry of a generic context is resolved when the generated code first reads it. The generated code
-	///   reads an rgctx only through four inline functions of il2cpp-codegen.h, which is where the check goes.
+	/// What the runtime does differently is written in the headers of Native~, which are copied into libil2cpp:
+	/// Il2CppLazyMetadata.h (the members of a generic instance and the entries of an rgctx) and Il2CppLazyInterfaces.h
+	/// (the vtable slots and the classes of the interfaces a generic instance or an array implements). This class puts
+	/// the lines into the sources of libil2cpp that call into them. Each of them names the text it expects, and the
+	/// build stops when that text is not there.
 	///
 	/// Set the environment variable IL2CPP_LAZY_METADATA=0 to build without it.
 	/// </summary>
 	public sealed class Il2CppLazyMetadata : IPostprocessBuildWithReport
 	{
+		const string Header = "Il2CppLazyMetadata.h";
+		const string InterfacesHeader = "Il2CppLazyInterfaces.h";
+
 		public int callbackOrder => 1000;
 
 		public void OnPostprocessBuild(BuildReport report)
@@ -71,238 +74,328 @@ namespace Il2CppLazy
 			return found == null ? null : Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(found)));
 		}
 
-		/// <summary>Applies both changes to the il2cpp folder at <paramref name="root"/> (the one that has libil2cpp in it).</summary>
-		public static void Apply(string root)
+		/// <summary>
+		/// Applies the changes to the il2cpp folder at <paramref name="root"/> (the one that has libil2cpp in it).
+		/// With <paramref name="switched"/> each change is taken only when the Player runs with its environment variable set
+		/// (GENERIC_MEMORY_LAZY_METHODS=1, GENERIC_MEMORY_LAZY_RGCTX=1, GENERIC_MEMORY_LAZY_INTERFACES=1,
+		/// GENERIC_MEMORY_LAZY_INTERFACE_CLASSES=1). That form is for measuring: it needs the counters of the generic-memory
+		/// bench in the same folder, and one Player built with it runs with and without each change.
+		/// </summary>
+		public static void Apply(string root, bool switched = false)
 		{
 			var lib = Path.Combine(root, "libil2cpp");
+			CopyHeader(lib, Header, switched);
+			CopyHeader(lib, InterfacesHeader, false);
 
-			Edit(Path.Combine(lib, "vm", "Class.cpp"), new[]
-			{
-				// 1. Initialization no longer inflates the members of a generic instance.
-				(
+			// A source that calls into Il2CppLazyInterfaces.h includes it itself, whatever else it is compiled together with.
+			const string interfaces = "#include \"vm/" + InterfacesHeader + "\"\n";
+
+			Edit(Path.Combine(lib, "vm", "Class.cpp"),
+				After("#include <stdarg.h>\n", "\n#define IL2CPP_LAZY_METADATA_IN_CLASS_CPP\n#include \"vm/" + Header + "\"\n" + interfaces),
+				// Initialization leaves the members of a generic instance alone, and the methods of an array.
+				Swap(
 					"        SetupMethodsLocked(klass, lock);\n        SetupTypeHierarchyLocked(klass, lock);",
-					"        // Lazy metadata: the methods of a generic instance are inflated when something asks for them.\n"
-					+ "        const bool lazyMembers = klass->generic_class != NULL;\n"
+					"        const bool lazyMembers = (klass->generic_class != NULL && IL2CPP_LAZY_MEMBERS()) || (klass->rank != 0 && IL2CPP_LAZY_INTERFACE_SLOTS());\n"
 					+ "        if (!lazyMembers)\n"
 					+ "            SetupMethodsLocked(klass, lock);\n"
-					+ "        SetupTypeHierarchyLocked(klass, lock);"
-				),
-				(
+					+ "        SetupTypeHierarchyLocked(klass, lock);"),
+				Swap(
 					"        SetupEventsLocked(klass, lock);\n        SetupPropertiesLocked(klass, lock);\n        SetupNestedTypesLocked(klass, lock);",
 					"        if (!lazyMembers)\n        {\n            SetupEventsLocked(klass, lock);\n            SetupPropertiesLocked(klass, lock);\n        }\n"
-					+ "        SetupNestedTypesLocked(klass, lock);"
-				),
-				// 2. A lookup by name (the static constructor, a delegate's Invoke) finds the method in the definition
-				//    and inflates that one, instead of all of them.
-				(
-					"        while (klass != NULL)\n        {\n            void* iter = NULL;\n"
+					+ "        SetupNestedTypesLocked(klass, lock);"),
+				// A lookup by name finds the method in the definition and inflates that one.
+				Before(
+					"            void* iter = NULL;\n"
 					+ "            while (const MethodInfo* method = Class::GetMethods(klass, &iter))\n            {\n"
 					+ "                if (method->name[0] == name[0] &&",
-					"        while (klass != NULL)\n        {\n"
-					+ "            if (klass->generic_class != NULL && klass->methods == NULL && argTypes == NULL)\n"
+					"            if (const MethodInfo* lazy = LazyLookUpInDefinition(klass, name, argsCount, flags, argTypes))\n"
 					+ "            {\n"
-					+ "                void* definitionIter = NULL;\n"
-					+ "                const MethodInfo* found = NULL;\n"
-					+ "                Il2CppClass* definition = GenericClass::GetTypeDefinition(klass->generic_class);\n"
-					+ "                while (const MethodInfo* method = Class::GetMethods(definition, &definitionIter))\n"
-					+ "                {\n"
-					+ "                    if (method->name[0] == name[0] &&\n"
-					+ "                        (argsCount == IgnoreNumberOfArguments || method->parameters_count == argsCount) &&\n"
-					+ "                        ((method->flags & flags) == flags) &&\n"
-					+ "                        !strcmp(name, method->name))\n"
-					+ "                    {\n"
-					+ "                        found = method;\n"
-					+ "                        break;\n"
-					+ "                    }\n"
-					+ "                }\n"
-					+ "                if (found != NULL)\n"
-					+ "                    return il2cpp::metadata::GenericMethod::GetMethod(found, klass->generic_class->context.class_inst, NULL);\n"
+					+ "                if (lazy != &s_LazyMethodNotThere)\n"
+					+ "                    return lazy;\n"
 					+ "                klass = klass->parent;\n"
 					+ "                continue;\n"
-					+ "            }\n\n"
-					+ "            void* iter = NULL;\n"
-					+ "            while (const MethodInfo* method = Class::GetMethods(klass, &iter))\n            {\n"
-					+ "                if (method->name[0] == name[0] &&"
-				),
-				// 3. The instance's method for a definition's method, without the whole table.
-				(
+					+ "            }\n\n"),
+				// The instance's method for a definition's method, without the whole table.
+				Before(
 					"        const MethodInfo* genericClassMethod = genericInstanceClass->methods[index];",
 					"        if (genericInstanceClass->methods == NULL)\n"
-					+ "            return il2cpp::metadata::GenericMethod::GetMethod(methodDefinition, genericInstanceClass->generic_class->context.class_inst, NULL);\n\n"
-					+ "        const MethodInfo* genericClassMethod = genericInstanceClass->methods[index];"
-				),
-				// 8. The properties and the events are made once. A thread that found none waits for the lock, and by then
-				//    another may have made them: making them again would put a second table under a thread that is walking
-				//    the first, and the walk ends where the table the class has now ends.
-				(
+					+ "            return il2cpp::metadata::GenericMethod::GetMethod(methodDefinition, genericInstanceClass->generic_class->context.class_inst, NULL);\n\n"),
+				// The properties and the events are made once. A thread that found none waits for the lock, and by then
+				// another may have made them: making them again would put a second table under a thread that is walking
+				// the first, and the walk ends where the table the class has now ends.
+				Swap(
 					"            il2cpp::os::FastAutoLock lock(&g_MetadataLock);\n            SetupEventsLocked(klass, lock);\n",
-					"            il2cpp::os::FastAutoLock lock(&g_MetadataLock);\n            if (!klass->events)\n                SetupEventsLocked(klass, lock);\n"
-				),
-				(
+					"            il2cpp::os::FastAutoLock lock(&g_MetadataLock);\n            if (!klass->events)\n                SetupEventsLocked(klass, lock);\n"),
+				Swap(
 					"            il2cpp::os::FastAutoLock lock(&g_MetadataLock);\n            SetupPropertiesLocked(klass, lock);\n",
-					"            il2cpp::os::FastAutoLock lock(&g_MetadataLock);\n            if (!klass->properties)\n                SetupPropertiesLocked(klass, lock);\n"
-				),
-			});
-			// 4. The vtable of an array reads the methods of the generic interfaces it implements right after initializing them.
-			Edit(Path.Combine(lib, "metadata", "ArrayMetadata.cpp"), new[]
-			{
-				(
-					"            Class::Init(implementingInterface);\n\n            const MethodInfo* matchingInterfacesMethod = NULL;",
-					"            Class::Init(implementingInterface);\n            Class::SetupMethods(implementingInterface);\n\n"
-					+ "            const MethodInfo* matchingInterfacesMethod = NULL;"
-				),
-			});
-			// 5. The message of a failed interface call names the method.
-			Edit(Path.Combine(lib, "vm", "ClassInlines.cpp"), new[]
-			{
-				("Method::GetName(itf->methods[slot])", "(itf->methods != NULL ? Method::GetName(itf->methods[slot]) : \"?\")"),
-			});
-			// 6. A table made after its class was initialized is read by threads that take no lock, and nothing orders
-			//    their reads behind the writes any more: initialization used to end with a memory barrier. So the table
-			//    is complete in memory before the class points at it.
-			Edit(Path.Combine(lib, "vm", "GenericClass.cpp"), new[]
-			{
-				("        genericInstanceType->methods = methods;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n        genericInstanceType->methods = methods;\n"),
-				("        genericInstanceType->properties = properties;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n        genericInstanceType->properties = properties;\n"),
-				("        genericInstanceType->events = events;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n        genericInstanceType->events = events;\n"),
-			});
-			// 7. A named argument of an attribute reads the property out of the table of the class that declares it.
-			Edit(Path.Combine(lib, "metadata", "CustomAttributeDataReader.cpp"), new[]
-			{
-				(
-					"            propArg.prop = &klass->properties[propertyIndex];",
-					"            vm::Class::SetupProperties(const_cast<Il2CppClass*>(klass));\n            propArg.prop = &klass->properties[propertyIndex];"
-				),
-			});
+					"            il2cpp::os::FastAutoLock lock(&g_MetadataLock);\n            if (!klass->properties)\n                SetupPropertiesLocked(klass, lock);\n"),
+				// The list of the interfaces of a generic instance is filled before the class points at it. Whoever lists the
+				// interfaces of a type looks at the pointer without the lock, and a list that is there but half filled ends the
+				// listing early. The original wrote the pointer first, which went unseen while initialization held the lock for long.
+				// An entry of the list is the class of an interface only if that class was made already.
+				Swap(
+					"                klass->implementedInterfaces = (Il2CppClass**)MetadataCalloc(genericTypeDefinition->interfaces_count, sizeof(Il2CppClass*));\n"
+					+ "                for (uint16_t i = 0; i < genericTypeDefinition->interfaces_count; i++)\n"
+					+ "                    klass->implementedInterfaces[i] = Class::FromIl2CppType(il2cpp::metadata::GenericMetadata::InflateIfNeeded(MetadataCache::GetInterfaceFromOffset(genericTypeDefinition, i), context, false));\n",
+					"                Il2CppClass** implemented = (Il2CppClass**)MetadataCalloc(genericTypeDefinition->interfaces_count, sizeof(Il2CppClass*));\n"
+					+ "                for (uint16_t i = 0; i < genericTypeDefinition->interfaces_count; i++)\n"
+					+ "                    implemented[i] = LazyInterfaces::ImplementedEntry(MetadataCache::GetInterfaceFromOffset(genericTypeDefinition, i), context);\n"
+					+ "                il2cpp::os::Atomic::FullMemoryBarrier();\n"
+					+ "                klass->implementedInterfaces = implemented;\n"),
 
-			Edit(Path.Combine(lib, "metadata", "GenericMetadata.h"), new[]
-			{
-				(
-					"        static Il2CppRGCTXData* InflateRGCTXLocked(const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, const il2cpp::os::FastAutoLock& lock);",
-					"        static Il2CppRGCTXData* InflateRGCTXLocked(const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, const il2cpp::os::FastAutoLock& lock);\n"
-					+ "        // Lazy metadata: one entry of an rgctx, resolved when it is first read.\n"
-					+ "        static const Il2CppRGCTXData* ResolveRGCTXEntry(const Il2CppRGCTXData* data, int32_t index);\n"
-					+ "        static void ResolveRGCTXEntryLocked(Il2CppRGCTXData* slot, const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, int32_t rgctxIndex, const il2cpp::os::FastAutoLock& lock);"
-				),
-			});
-			Edit(Path.Combine(lib, "metadata", "GenericMetadata.cpp"), new[]
-			{
-				("#include \"vm/MetadataCache.h\"\n", "#include \"vm/MetadataCache.h\"\n#include \"vm/MetadataLock.h\"\n#include \"os/Atomic.h\"\n"),
-				(
-					"        Il2CppRGCTXData* dataValues = (Il2CppRGCTXData*)MetadataCalloc(collection.count, sizeof(Il2CppRGCTXData));\n"
-					+ "        for (RGCTXIndex rgctxIndex = 0; rgctxIndex < collection.count; rgctxIndex++)\n"
-					+ "        {\n"
-					+ "            const Il2CppRGCTXDefinition* definitionData = collection.items + rgctxIndex;\n"
-					+ "            switch (definitionData->type)\n",
-					RgctxBody()
-				),
-				// The cases of the original wrote into the array by index; they now write the one slot they are given.
-				("dataValues[rgctxIndex].type = GenericMetadata::InflateIfNeeded(", "slot->type = GenericMetadata::InflateIfNeeded("),
-				("dataValues[rgctxIndex].klass = Class::FromIl2CppType(", "slot->klass = Class::FromIl2CppType("),
-				("Class::InitSizeAndFieldLayoutLocked(dataValues[rgctxIndex].klass, lock);", "Class::InitSizeAndFieldLayoutLocked(slot->klass, lock);"),
-				("dataValues[rgctxIndex].method = GenericMethod::GetMethod(Inflate(", "slot->method = GenericMethod::GetMethod(Inflate("),
-				("dataValues[rgctxIndex].method = method;", "slot->method = method;"),
-				// The loop of the original returned the array after its closing brace; the entry resolver returns nothing.
-				(
-					"                default:\n                    IL2CPP_ASSERT(0);\n            }\n        }\n\n        return dataValues;\n    }",
-					"                default:\n                    IL2CPP_ASSERT(0);\n            }\n        }\n    }"
-				),
-				(
-					"namespace il2cpp\n{\nnamespace metadata\n{\n    const Il2CppType** GenericMetadata::InflateParameters(",
-					"// Lazy metadata: what the generated code calls when it reads an entry that is still empty.\n"
-					+ "const Il2CppRGCTXData* il2cpp_lazy_rgctx_resolve(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return il2cpp::metadata::GenericMetadata::ResolveRGCTXEntry(rgctxVar, index);\n}\n\n"
-					+ "namespace il2cpp\n{\nnamespace metadata\n{\n    const Il2CppType** GenericMetadata::InflateParameters("
-				),
-			});
-			Edit(Path.Combine(lib, "codegen", "il2cpp-codegen.h"), new[]
-			{
-				(
-					"// generic sharing\ninline RuntimeClass* il2cpp_rgctx_data(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return InitializedTypeInfo(rgctxVar[index].klass);\n}\n\n"
-					+ "inline RuntimeClass* il2cpp_rgctx_data_no_init(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return rgctxVar[index].klass;\n}\n\n"
-					+ "inline const Il2CppType* il2cpp_rgctx_type(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return rgctxVar[index].type;\n}\n\n"
-					+ "inline const MethodInfo* il2cpp_rgctx_method(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return rgctxVar[index].method;\n}",
-					"// generic sharing\n"
-					+ "// Lazy metadata: an entry that is still empty is resolved by the runtime when it is read.\n"
-					+ "const Il2CppRGCTXData* il2cpp_lazy_rgctx_resolve(const Il2CppRGCTXData* rgctxVar, int32_t index);\n\n"
-					+ "inline const Il2CppRGCTXData* il2cpp_lazy_rgctx_entry(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    if (rgctxVar[index].rgctxDataDummy == NULL)\n"
-					+ "        il2cpp_lazy_rgctx_resolve(rgctxVar, index);\n"
-					+ "    return rgctxVar + index;\n}\n\n"
-					+ "inline RuntimeClass* il2cpp_rgctx_data(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return InitializedTypeInfo(il2cpp_lazy_rgctx_entry(rgctxVar, index)->klass);\n}\n\n"
-					+ "inline RuntimeClass* il2cpp_rgctx_data_no_init(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return il2cpp_lazy_rgctx_entry(rgctxVar, index)->klass;\n}\n\n"
-					+ "inline const Il2CppType* il2cpp_rgctx_type(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return il2cpp_lazy_rgctx_entry(rgctxVar, index)->type;\n}\n\n"
-					+ "inline const MethodInfo* il2cpp_rgctx_method(const Il2CppRGCTXData* rgctxVar, int32_t index)\n{\n"
-					+ "    return il2cpp_lazy_rgctx_entry(rgctxVar, index)->method;\n}"
-				),
-			});
+				// The interfaces of a class are read through Il2CppLazyInterfaces.h, which knows an entry that is not a class.
+				After(
+					"            Class::SetupInterfaces(klass);\n            if (klass->interfaces_count == 0)\n                return NULL;\n",
+					"            LazyInterfaces::MakeImplemented(klass);\n"),
+				Swap(
+					"                    if (IsGenericClassAssignableFrom(klass, iter->implementedInterfaces[i], oklass))",
+					"                    if (LazyInterfaces::IsAssignable(klass, iter->implementedInterfaces[i], oklass))"),
+				Swap(
+					"                    if (IsGenericClassAssignableFrom(klass, iter->interfaceOffsets[i].interfaceType, oklass))",
+					"                    if (LazyInterfaces::IsAssignable(klass, iter->interfaceOffsets[i].interfaceType, oklass))"),
+				Swap(
+					"                    if (iter->implementedInterfaces[i] == klass)",
+					"                    if (LazyInterfaces::Is(iter->implementedInterfaces[i], klass))"),
+				Swap(
+					"                    if (iter->interfaceOffsets[i].interfaceType == klass)",
+					"                    if (LazyInterfaces::Is(iter->interfaceOffsets[i].interfaceType, klass))"),
+				Swap(
+					"                    if (oklass->implementedInterfaces[i] == klassc)",
+					"                    if (LazyInterfaces::Is(oklass->implementedInterfaces[i], klassc))"),
+				Swap(
+					"                if (klass->implementedInterfaces[i] == klassc)",
+					"                if (LazyInterfaces::Is(klass->implementedInterfaces[i], klassc))"),
+
+				// SetupVTable keeps the loop that knows what a slot of a generic instance holds. Called again for a class
+				// that is initialized, with the slots of one interface, it fills those and no other.
+				Swap(
+					"    static void SetupVTable(Il2CppClass *klass, const il2cpp::os::FastAutoLock& lock);\n",
+					"    static void SetupVTable(Il2CppClass *klass, const il2cpp::os::FastAutoLock& lock, int32_t lazyFirst = 0, int32_t lazyCount = 0);\n"),
+				Swap(
+					"    static void SetupVTable(Il2CppClass *klass, const il2cpp::os::FastAutoLock& lock)\n    {\n        if (klass->is_vtable_initialized)\n            return;\n",
+					"    static void SetupVTable(Il2CppClass *klass, const il2cpp::os::FastAutoLock& lock, int32_t lazyFirst, int32_t lazyCount)\n    {\n        if (klass->is_vtable_initialized && lazyCount == 0)\n            return;\n"),
+				Swap(
+					"                    klass->interfaceOffsets[i].interfaceType = Class::FromIl2CppType(il2cpp::metadata::GenericMetadata::InflateIfNeeded(interfaceOffset.interfaceType, context, false));\n",
+					"                    klass->interfaceOffsets[i].interfaceType = LazyInterfaces::OffsetEntry(klass, genericTypeDefinition, interfaceOffset.interfaceType, interfaceOffset.offset, context);\n"),
+				After(
+					"                for (uint16_t i = 0; i < genericTypeDefinition->vtable_count; i++)\n                {\n",
+					"                    if (LazyInterfaces::LeavesSlot(klass, i, lazyFirst, lazyCount))\n                        continue;\n\n"),
+				// A slot that is filled after its class was initialized names a method that is complete in memory.
+				Before(
+					"                    klass->vtable[i].method = method;\n                    if (method != NULL)\n                    {\n                        // For default interface methods",
+					"                    if (lazyCount != 0)\n                        il2cpp::os::Atomic::FullMemoryBarrier();\n"),
+				// The methods of an array are made for whoever asks for the methods of the type. Its vtable is set up by then.
+				After(
+					"            Class::InitLocked(klass->element_class, lock);\n            SetupVTable(klass, lock);\n",
+					"            il2cpp::metadata::LazyArrayMethods(klass);\n"),
+				// A slot that is read by its number may be one that was left empty.
+				After(
+					"            vtableSlotMethod = klass->vtable[virtualMethod->slot].method;\n",
+					"            if (vtableSlotMethod == NULL)\n                vtableSlotMethod = LazyInterfaces::SlotMethod(klass, virtualMethod->slot);\n"),
+				// The bodies that call SetupVTable.
+				After(
+					"} /* namespace vm */\n} /* namespace il2cpp */\n",
+					"\n#define IL2CPP_LAZY_INTERFACES_IN_CLASS_CPP\n" + interfaces));
+
+			Edit(Path.Combine(lib, "vm", "Object.cpp"),
+				After("#include \"vm/ClassInlines.h\"\n", interfaces),
+				After(
+					"            vtableSlotMethod = obj->klass->vtable[virtualMethod->slot].method;\n",
+					"            if (vtableSlotMethod == NULL)\n                vtableSlotMethod = LazyInterfaces::SlotMethod(obj->klass, virtualMethod->slot);\n"));
+
+			Edit(Path.Combine(lib, "vm", "ClassInlines.cpp"),
+				After("#include \"vm/Class.h\"\n", interfaces),
+				// The message of a failed interface call names the method.
+				Swap("Method::GetName(itf->methods[slot])", "(itf->methods != NULL ? Method::GetName(itf->methods[slot]) : \"?\")"),
+				// The lookup the generated code inlines does not see a pair that is marked. Its slow path looks for the pair
+				// that is the interface itself first, and then, as it always did, for one that stands in for it by variance.
+				Before(
+					"        if (itf->generic_class != NULL)\n        {\n            for (uint16_t i = 0; i < klass->interface_offsets_count; ++i)\n",
+					"        if (const VirtualInvokeData* exact = LazyInterfaces::ExactInvokeData(klass, itf, slot))\n            return exact;\n\n"),
+				Swap(
+					"                if (Class::IsGenericClassAssignableFromVariance(itf, pair->interfaceType, klass))",
+					"                if (LazyInterfaces::IsVariantAndFilled(klass, i, itf))"));
+
+			// What stands for a COM object finds its interfaces in the tables as they always were.
+			Edit(Path.Combine(lib, "vm", "RCW.cpp"),
+				After("#include \"vm/GenericClass.h\"\n", interfaces),
+				After(
+					"        Class::Init(queriedInterface);\n        uint16_t vtableCount = queriedInterface->vtable_count;\n",
+					"        LazyInterfaces::MakeAll(queriedInterface);\n"));
+
+			Edit(Path.Combine(lib, "metadata", "ArrayMetadata.cpp"),
+				After("#include \"metadata/ArrayMetadata.h\"\n", interfaces),
+				// The vtable of an array reads the methods of the generic interfaces it implements right after initializing them.
+				After("            Class::Init(implementingInterface);\n", "            Class::SetupMethods(implementingInterface);\n"),
+				// The methods of an array are not made when it is initialized: the ones for its generic interfaces are made
+				// when an interface is called through, and the table of them all when something asks for the methods of the
+				// type. The table then takes the methods that slots already hold, and the pairs may be without their classes.
+				Swap(
+					"        SetupArrayVTableAndInterfaceOffsets(klass);\n        SetupArrayMethods(klass);\n",
+					"        SetupArrayVTableAndInterfaceOffsets(klass);\n        if (!IL2CPP_LAZY_INTERFACE_SLOTS())\n            SetupArrayMethods(klass);\n"),
+				Every("interfaceType->generic_class", "genericClassOfInterface", 3),
+				Swap(
+					"            Il2CppClass* interfaceType = klass->interfaceOffsets[i].interfaceType;\n",
+					"            const Il2CppGenericClass* genericClassOfInterface = il2cpp::vm::LazyInterfaces::GenericClassOf(klass->interfaceOffsets[i].interfaceType);\n"),
+				Swap(
+					"                MethodInfo* arrayMethod = ConstructGenericArrayMethod(*iter, klass, &context);\n"
+					+ "                klass->methods[offset++] = arrayMethod;\n\n"
+					+ "                size_t vtableIndex = klass->interfaceOffsets[i].offset + iter->interfaceMethodDefinition->slot;\n",
+					"                size_t vtableIndex = klass->interfaceOffsets[i].offset + iter->interfaceMethodDefinition->slot;\n"
+					+ "                MethodInfo* arrayMethod = il2cpp::vm::LazyInterfaces::MethodInSlot(klass->vtable[vtableIndex]);\n"
+					+ "                if (arrayMethod == NULL)\n"
+					+ "                    arrayMethod = ConstructGenericArrayMethod(*iter, klass, &context);\n"
+					+ "                klass->methods[offset++] = arrayMethod;\n\n"),
+				// The generic interfaces of an array: ten entries, five in each table.
+				Every(
+					" = Class::GetInflatedGenericInstanceClass(il2cpp_defaults.generic_",
+					" = il2cpp::vm::LazyInterfaces::ArrayEntry(il2cpp_defaults.generic_", 10),
+				ArraySlots("index"),
+				ArraySlots("index + 1"),
+				ArraySlots("index + 2"),
+				ArraySlots("index + 3"),
+				ArraySlots("index + 4"),
+				Before(
+					"        klass->interface_offsets_count = static_cast<uint16_t>(interfaceOffsetsCount);\n",
+					"        il2cpp::vm::LazyInterfaces::MarkArraySlots(klass, newInterfaceOffsets, arrayInterfacesCount, interfaceOffsetsCount, arrayVTableSlot, vtableSlot);\n"),
+				// The body that makes those methods.
+				After(
+					"} /* namespace vm */\n} /* namespace il2cpp */\n",
+					"\n#define IL2CPP_LAZY_INTERFACES_IN_ARRAY_METADATA_CPP\n" + interfaces));
+
+			// A table made after its class was initialized is read by threads that take no lock, and nothing orders
+			// their reads behind the writes any more: initialization used to end with a memory barrier. So the table
+			// is complete in memory before the class points at it.
+			Edit(Path.Combine(lib, "vm", "GenericClass.cpp"),
+				Before("        genericInstanceType->methods = methods;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"),
+				Before("        genericInstanceType->properties = properties;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"),
+				Before("        genericInstanceType->events = events;\n", "        il2cpp::os::Atomic::FullMemoryBarrier();\n"));
+
+			// A named argument of an attribute reads the property out of the table of the class that declares it.
+			Edit(Path.Combine(lib, "metadata", "CustomAttributeDataReader.cpp"),
+				Before("            propArg.prop = &klass->properties[propertyIndex];", "            vm::Class::SetupProperties(const_cast<Il2CppClass*>(klass));\n"));
+
+			// The entries of an rgctx. InflateRGCTXLocked keeps the loop that knows how each kind of entry is resolved. It is
+			// told where to put what it resolves and which entry to resolve, and without that it resolves none.
+			const string inflate = "InflateRGCTXLocked(const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, const ";
+			Edit(Path.Combine(lib, "metadata", "GenericMetadata.h"),
+				Swap(
+					"        static Il2CppRGCTXData* " + inflate + "il2cpp::os::FastAutoLock& lock);",
+					"        static Il2CppRGCTXData* " + inflate + "il2cpp::os::FastAutoLock& lock, Il2CppRGCTXData* aside = NULL, int32_t only = -1);"));
+			Edit(Path.Combine(lib, "metadata", "GenericMetadata.cpp"),
+				After("#include \"Cpp/ReentrantLock.h\"\n", "\n#define IL2CPP_LAZY_METADATA_IN_GENERIC_METADATA_CPP\n#include \"vm/" + Header + "\"\n"),
+				Swap(
+					"    Il2CppRGCTXData* GenericMetadata::" + inflate + "FastAutoLock& lock)\n",
+					"    Il2CppRGCTXData* GenericMetadata::" + inflate + "FastAutoLock& lock, Il2CppRGCTXData* aside, int32_t only)\n"),
+				Swap(
+					"        Il2CppRGCTXData* dataValues = (Il2CppRGCTXData*)MetadataCalloc(collection.count, sizeof(Il2CppRGCTXData));\n",
+					"        Il2CppRGCTXData* dataValues = LazyRgctxValues(collection.count, image, token, context, aside);\n"),
+				After(
+					"        for (RGCTXIndex rgctxIndex = 0; rgctxIndex < collection.count; rgctxIndex++)\n        {\n",
+					"            if (LazyRgctxLeaves(rgctxIndex, aside, only))\n                continue;\n\n"));
+
+			// The generated code reads an rgctx only through four inline functions, each of which indexes it once. The two
+			// places where it reads a vtable slot by its number and uses the method ask for a slot that was left empty.
+			Edit(Path.Combine(lib, "codegen", "il2cpp-codegen.h"),
+				After("#include \"vm/ClassInlines.h\"\n", "#include \"vm/" + Header + "\"\n"),
+				Every("rgctxVar[index]", "il2cpp_lazy_rgctx_entry(rgctxVar, index)", 4),
+				After(
+					"    const RuntimeMethod* methodDefinition = obj->klass->vtable[slot].method;\n",
+					"    if (methodDefinition == NULL)\n        methodDefinition = il2cpp_lazy_interface_slot(obj->klass, slot);\n"),
+				Swap(
+					"    return pThis->klass->vtable[slot].method;\n",
+					"    const RuntimeMethod* slotMethod = pThis->klass->vtable[slot].method;\n"
+					+ "    return slotMethod != NULL ? slotMethod : il2cpp_lazy_interface_slot(pThis->klass, slot);\n"));
 		}
 
-		// What replaces the head of the loop of InflateRGCTXLocked: the array starts empty with three slots ahead of it that
-		// say where its entries come from, and the body of the loop becomes the resolver of one entry.
-		static string RgctxBody()
+		/// <summary>Copies a header into libil2cpp/vm. The switched form is the same file with one line ahead of it.</summary>
+		static void CopyHeader(string lib, string header, bool switched)
 		{
-			var empty =
-				"            // Lazy metadata: three slots ahead of the entries say where they come from, and the entries stay empty until read.\n"
-				+ "            Il2CppRGCTXData* block = (Il2CppRGCTXData*)MetadataCalloc(collection.count + 3, sizeof(Il2CppRGCTXData));\n"
-				+ "            block[0].rgctxDataDummy = (void*)image;\n"
-				+ "            block[1].rgctxDataDummy = (void*)(uintptr_t)token;\n"
-				+ "            block[2].rgctxDataDummy = (void*)context;\n"
-				+ "            return block + 3;\n";
-			return "        {\n" + empty + "        }\n"
-				+ "    }\n\n"
-				+ "    const Il2CppRGCTXData* GenericMetadata::ResolveRGCTXEntry(const Il2CppRGCTXData* data, int32_t index)\n"
-				+ "    {\n"
-				+ "        FastAutoLock lock(&il2cpp::vm::g_MetadataLock);\n"
-				+ "        Il2CppRGCTXData* values = const_cast<Il2CppRGCTXData*>(data);\n"
-				+ "        if (values[index].rgctxDataDummy == NULL)\n"
-				+ "        {\n"
-				+ "            // Lazy metadata: the readers take no lock, so the entry is resolved aside and shown to them only once it is complete,\n"
-				+ "            // the way GenericClass::CreateClass shows a class.\n"
-				+ "            Il2CppRGCTXData resolved;\n"
-				+ "            resolved.rgctxDataDummy = NULL;\n"
-				+ "            ResolveRGCTXEntryLocked(&resolved, (const Il2CppImage*)values[-3].rgctxDataDummy, (uint32_t)(uintptr_t)values[-2].rgctxDataDummy,\n"
-				+ "                (const Il2CppGenericContext*)values[-1].rgctxDataDummy, index, lock);\n"
-				+ "            il2cpp::os::Atomic::ExchangePointer(&values[index].rgctxDataDummy, resolved.rgctxDataDummy);\n"
-				+ "        }\n"
-				+ "        return data;\n"
-				+ "    }\n\n"
-				+ "    void GenericMetadata::ResolveRGCTXEntryLocked(Il2CppRGCTXData* slot, const Il2CppImage* image, uint32_t token, const Il2CppGenericContext* context, int32_t rgctxIndex, const FastAutoLock& lock)\n"
-				+ "    {\n"
-				+ "        RGCTXCollection collection = MetadataCache::GetRGCTXs(image, token);\n"
-				+ "        {\n"
-				+ "            const Il2CppRGCTXDefinition* definitionData = collection.items + rgctxIndex;\n"
-				+ "            switch (definitionData->type)\n";
+			var folder = Path.GetDirectoryName(CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(typeof(Il2CppLazyMetadata).Assembly.GetName().Name));
+			var text = File.ReadAllText(Path.Combine(folder, "Native~", header)).Replace("\r\n", "\n");
+			if (switched)
+			{
+				text = "#define IL2CPP_LAZY_METADATA_SWITCHED 1\n" + text;
+			}
+			File.WriteAllText(Path.Combine(lib, "vm", header), text);
+		}
+
+		/// <summary>One change to a source of libil2cpp: the text that is there, what takes its place, and how often it occurs.</summary>
+		readonly struct Change
+		{
+			public readonly string Old;
+			public readonly string New;
+			public readonly int Times;
+
+			public Change(string old, string replacement, int times)
+			{
+				Old = old;
+				New = replacement;
+				Times = times;
+			}
+		}
+
+		static Change Swap(string old, string replacement)
+		{
+			return new Change(old, replacement, 1);
+		}
+
+		static Change Before(string anchor, string added)
+		{
+			return new Change(anchor, added + anchor, 1);
+		}
+
+		static Change After(string anchor, string added)
+		{
+			return new Change(anchor, anchor + added, 1);
+		}
+
+		static Change Every(string old, string replacement, int times)
+		{
+			return new Change(old, replacement, times);
+		}
+
+		/// <summary>The line of ArrayMetadata.cpp that counts the slots of one of the generic interfaces of an array.</summary>
+		static Change ArraySlots(string at)
+		{
+			return Swap(
+				"            vtableSlot += newInterfaceOffsets[" + at + "].interfaceType->method_count;\n",
+				"            vtableSlot += il2cpp::vm::LazyInterfaces::MethodCount(newInterfaceOffsets[" + at + "].interfaceType);\n");
 		}
 
 		/// <summary>
-		/// Replaces each text with its counterpart, once. A file that already has the new text is left as it is, so applying
-		/// twice does no harm; a file that has neither is not the libil2cpp these changes were written for.
+		/// Makes each change once. A file that already has the new text is left as it is, so applying twice does no harm;
+		/// a file that has neither is not the libil2cpp these changes were written for.
 		/// </summary>
-		static void Edit(string path, IEnumerable<(string Old, string New)> pairs)
+		static void Edit(string path, params Change[] changes)
 		{
 			var raw = File.ReadAllText(path);
 			var crlf = raw.Contains("\r\n");
 			var text = raw.Replace("\r\n", "\n");
-			foreach (var (old, replacement) in pairs)
+			foreach (var change in changes)
 			{
-				if (text.Contains(replacement))
+				var count = 0;
+				for (var at = text.IndexOf(change.Old, StringComparison.Ordinal); at >= 0; at = text.IndexOf(change.Old, at + change.Old.Length, StringComparison.Ordinal))
 				{
+					count++;
+				}
+				if (text.Contains(change.New))
+				{
+					// Made already. Unless the new text is there for another reason and the old text is still all there:
+					// then this change would be left out without a word.
+					if (count == change.Times && !change.New.Contains(change.Old))
+					{
+						throw new InvalidOperationException("both the old and the new text are in " + Path.GetFileName(path) + ": "
+							+ change.Old.Substring(0, Math.Min(60, change.Old.Length)).Replace("\n", " "));
+					}
 					continue;
 				}
-				var at = text.IndexOf(old, StringComparison.Ordinal);
-				if (at < 0)
+				if (count != change.Times)
 				{
-					throw new InvalidOperationException("expected text not found in " + Path.GetFileName(path) + ": " + old.Substring(0, Math.Min(60, old.Length)).Replace("\n", " "));
+					throw new InvalidOperationException("expected text found " + count + " times, not " + change.Times + ", in " + Path.GetFileName(path) + ": "
+						+ change.Old.Substring(0, Math.Min(60, change.Old.Length)).Replace("\n", " "));
 				}
-				text = text.Substring(0, at) + replacement + text.Substring(at + old.Length);
+				text = text.Replace(change.Old, change.New);
 			}
 			File.WriteAllText(path, crlf ? text.Replace("\n", "\r\n") : text);
 		}
