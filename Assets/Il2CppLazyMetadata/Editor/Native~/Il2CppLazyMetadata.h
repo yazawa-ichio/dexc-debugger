@@ -37,13 +37,24 @@
 // Resolves the entry of an rgctx that the generated code found empty. Defined in metadata/GenericMetadata.cpp.
 const Il2CppRGCTXData* il2cpp_lazy_rgctx_resolve(const Il2CppRGCTXData* rgctxVar, int32_t index);
 
+// Says that a condition is rarely true, where the compiler can be told: the code for it then leaves the path of the
+// other case.
+#if defined(__clang__) || defined(__GNUC__)
+#define IL2CPP_LAZY_RARELY(condition) __builtin_expect(!!(condition), 0)
+#else
+#define IL2CPP_LAZY_RARELY(condition) (condition)
+#endif
+
 // What the generated code reads an rgctx through. An entry that was resolved is never empty again, so the test costs
-// one comparison once it was.
-inline const Il2CppRGCTXData& il2cpp_lazy_rgctx_entry(const Il2CppRGCTXData* rgctxVar, int32_t index)
+// one comparison once it was. The entry is read once and handed on as a value. Tested in memory and read again after
+// the test, as this was first written, every read had a second load between the first and the call the entry is
+// for, and one compiler stopped inlining the readers below at some of their calls (a call for each read).
+inline Il2CppRGCTXData il2cpp_lazy_rgctx_entry(const Il2CppRGCTXData* rgctxVar, int32_t index)
 {
-    if (rgctxVar[index].rgctxDataDummy == NULL)
-        il2cpp_lazy_rgctx_resolve(rgctxVar, index);
-    return rgctxVar[index];
+    Il2CppRGCTXData entry = rgctxVar[index];
+    if (IL2CPP_LAZY_RARELY(entry.rgctxDataDummy == NULL))
+        entry = il2cpp_lazy_rgctx_resolve(rgctxVar, index)[index];
+    return entry;
 }
 
 // The method of a vtable slot that the generated code read by its number and found empty: the slots of an interface
