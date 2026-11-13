@@ -107,6 +107,9 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 | `ComparerChecks.cs`（36 件） | 既定の比較子を寄せた時の動き |
 | `SharingChecks.cs`（58 件） | `enum`／`linq` が型の同一性を変えていないこと |
 | `Bench.cs`、`InterfaceBench.cs`、`SpeedBench.cs` | 速度のカーネル |
+| `NumericBench.cs`、`NumericKernels.cs`、`NumericKernelsUnchecked.cs`、`NumericBurst.cs`、`NumericNative.cpp` | 数値と SIMD のベンチ。同じ処理を、ふつうの C#、検査なしの C#（`e-numeric-unchecked.py` が書く。手で直さない）、Burst、C++ のソースプラグイン、クラスライブラリで実行し、結果の一致を確かめてから測る。`NumericNative.cpp` は、C++ コンパイラに `GENERIC_MEMORY_NATIVE` の定義が渡った時だけ中身がある |
+| `Il2CppSetOptionAttribute.cs` | 検査を外す属性の、このアセンブリの中だけの写し（il2cpp は名前で見つける） |
+| `EngineBench.cs` | エンジンを呼ぶループのベンチ。呼び出しの形ごとの 1 回の時間と、自動の書き換えで得られる差（`before`／`after` の対。結果が同じことを確かめる） |
 | `KeepAll.cs`、`Repository.cs`、`Slim.cs`、`Support.cs`、`ReflectionBehaviour.cs` | 広い API を通す確認、ベンチと検証が使う型 |
 
 | Runner の引数 | すること |
@@ -114,6 +117,7 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 | `-generic-memory-pattern <名前> -generic-memory-n <数>` | パターンの型を `数` 個使い、増えたメタデータを書く。`-generic-memory-names` を足すと、作られたクラスとメソッドの名前も書く |
 | `-generic-memory-checks`、`-generic-memory-reflection`、`-generic-memory-interfaces`、`-generic-memory-comparers`、`-generic-memory-sharing` | 上の検証を実行する（`checks` は `AsyncChecks`） |
 | `-generic-memory-bench`、`-generic-memory-interface-bench`、`-generic-memory-speed-bench` | 速度のカーネルを測る |
+| `-generic-memory-numeric-bench`（`-generic-memory-numeric-pointers` で Burst を関数ポインタでも呼ぶ）、`-generic-memory-engine-bench` | 数値と SIMD のベンチ、エンジン呼び出しのベンチを測る |
 | `-generic-memory-race <深さ>` | リフレクションの検証のうち、競合の検査だけを回す。型の木を `深さ` 段たどる（深さ 2 なら、1 回の実行で 117 回の競合）。失敗した時は、どの型のどの一覧が何個違ったかを書く |
 | `-generic-memory-propname <スレッド数>` | 読み込まれている全部の型のプロパティの名前を、その数のスレッドで同時に読み、`null` で返った数を書く（クラスライブラリのキャッシュの競合を見る） |
 | `-generic-memory-output <ファイル>` | 結果の書き出し先（必須） |
@@ -139,9 +143,12 @@ Android では、引数はインテントの `unity` の追加情報（`am start
 | `d-android-switch.sh`、`d-android-build.sh`、`d-android-keep.py` | Android の実機確認。ビルドターゲットを Android にする、Editor のロックの中で Android の Player をビルドする、そのビルドがどの libil2cpp をコンパイルしたかを確かめてシンボルつきのライブラリを残す |
 | `d-android-run.py` | 接続した Android の端末に入れて実行する（`install`、`checks`、`repeat`、`measure`）。計測用のアプリのパッケージだけを扱う。`D_ANDROID_LOAD` で端末に負荷をかけながら回せる |
 | `d-win-run.py` | 同じ検証を、比較用の Windows の Player で回す |
+| `e-android-build.sh`、`e-android-keep.py` | C++ コンパイラの指定を変えた Android のビルド（`GENERIC_MEMORY_BUILD_IL2CPP_ARGS="--compiler-flags=-O3"`）。ビルドの dag から、実際に渡った指定を書き出す |
+| `e-android-run.py`、`e-stats.py` | 接続した端末で、条件をラウンドごとに交互に測る（`bench`）。毎回の温度とスロットリングも記録する。`e-stats.py` が条件を並べた表にする |
+| `e-numeric-unchecked.py` | `NumericKernels.cs` から、検査なしの版（`NumericKernelsUnchecked.cs`）を書く |
 | `speed/cast-cache-test.cpp`、`cast-cache-test.sh` | キャストのキャッシュの単体の負荷試験。ランタイムの外でヘッダーだけをコンパイルし、複数スレッドが同じ場所を奪い合う条件で、当たりの答えが全部正しいことを確かめる。この PC（MSVC）と、接続した Android の実機（NDK の clang、arm64）で動く |
 
-`a-`、`b-`、`c-`、`m-` の接頭辞は、検証を並行で進めた時の持ち主の印で、役割の区別ではない。
+`a-`、`b-`、`c-`、`d-`、`e-`、`m-` の接頭辞は、検証を並行で進めた時の持ち主の印で、役割の区別ではない。
 
 ## 測り方の決まり
 
@@ -225,3 +232,46 @@ Android の実機（arm64、Pixel 3 XL、`-Os`）での速度（5 ラウンド�
 - 直し方は 2 つ試した。最初の比較だけを `Class::IsAssignableFrom` に残して残りを別の関数にする形でも戻るが、`Object::IsInst` で先に比べる形のほうが関数を呼ばずに済み、0.4〜1.5 ns 速い。後者を採った。
 - インターフェースへのキャストは、どちらの形でも約 1 ns 遅く測れた。足した命令（比較 1 つ）では説明がつかず、原因は切り分けていない。この端末では、ライブラリの中のコードの位置が変わるだけで、関係のない小さいカーネルが 0.4〜0.8 ns 動く。
 - 確かめたこと: Android と Windows で検証 5 種が通る。結果は `results/e-fix2`、`results/e-eng4`。
+
+## コンパイラの指定、SIMD、エンジン呼び出しの実測（2026-11-13、Pixel 3 XL、arm64）
+
+ここから採用を決めたものはない。判断の材料として数値を残す。条件を 5 ラウンド交互に測った中央値（数値のベンチは最良値）で、ランタイムは遅延化だけを入れたもの。道具は `e-android-build.sh`、`e-android-run.py`、`e-stats.py`。
+
+### コンパイラの指定
+
+- 渡し方は `PlayerSettings.SetAdditionalIl2CppArgs("--compiler-flags=-O3")`。フラグ 1 つにつきオプションを 1 つ書く（カンマでつなぐと 1 つのフラグとして扱われる）。既定の `-Os` の後ろに付いて、後ろが勝つ。
+- Android は Debug 以外で `-Os`、LTO なし。iOS は `-O3`、LTO なし（Editor のビルドの DLL を読んだ結果で、iOS ではビルドしていない）。
+
+| 指定 | libil2cpp.so | ビルド時間 | 既存のカーネル 41 本 |
+|---|---:|---|---|
+| `-O2` | +3.6% | 変わらず | LINQ の重い方 −5%、キャスト +4〜12% |
+| `-O3` | +11.0% | 変わらず | 速い 7、遅い 8、±2% 以内 24 |
+| `-O3` と `-flto=thin` | +29.5% | 約 2 倍 | 速い 22（`list[i]` −43〜−56%、`IList<T>` 経由 −23〜−41%）、遅い 5、±2% 以内 13 |
+
+- 配列を添字で回すループが、`-O3` と ThinLTO で 55% 遅くなる（2.31 → 3.6 ns）。`-O2` では出ない。原因は分かっていない。
+- 起動時間は変わらない。検証 5 種は全条件で通る（各 1 回）。`-O2` と ThinLTO の組み合わせは試していない。
+
+### SIMD と演算（4,096 要素、1 要素あたりの ns）
+
+| 処理 | C# `-Os` | C# `-O3` | 検査なしの C# `-O3` | Burst | NEON の手書き |
+|---|---:|---:|---:|---:|---:|
+| int の合計 | 1.073 | 0.135 | 0.135 | 0.138 | |
+| float の合計 | 1.072 | 1.069 | 1.069 | 1.070（`FloatMode.Fast`: 0.139） | 0.113 |
+| y に a×x を足す | 2.148 | 1.672 | 0.230 | 0.249 | |
+| コピー | 1.431 | 0.174 | 0.190 | 0.274 | |
+| sin | 8.960 | 8.746 | 8.739 | 4.507 | |
+
+- 既定の `-Os` では、C# にも C++ にも自動のベクトル化が 1 つも入らない（逆アセンブルで確認）。
+- float の合計は指定では速くならない（足す順序を変えられないため）。範囲の検査が残るループは `-O3` でもベクトル化されず、`[Il2CppSetOption]` で検査を外すと入る。
+- 呼び出し 1 回の固定費: C# の非インライン呼び出し 1.9 ns、C++ のソースプラグイン（P/Invoke）1.9〜3.0 ns、Burst の直接呼び出し 14.1 ns（C# の関数ポインタ経由なら 1.9 ns）。16 要素では、Burst の直接呼び出しは `-O3` の C# に負ける。
+- sqrt と整数の割り算は、どの手段でも変わらない。
+
+### エンジン呼び出し（自動の書き換えで削れる余地）
+
+Player に入るコード（エンジンとクラスライブラリを除く 38,630 メソッド）を IL から数えた。エンジンを呼ぶ箇所は 2,141、うちループの中は 295。中身はこのプロジェクトのライブラリ、サンプル、URP、UI、Input System で、ゲーム本体のコードではない。
+
+- 呼び出しを規則で消す書き換え（ループの外へ出す、読み直しを消す、2 回を 1 回の API にまとめる）が当てはまるのは 56 か所（2.6%）だけ。
+- 数値や構造体をやり取りする呼び出しの橋渡しは最小に近く、`-O3` でも ThinLTO でも変わらない。
+- 余地があるのは 2 か所。エンジンのオブジェクトの null 比較（1,121 か所）は 10.1 → 2.3 ns（参照だけの比較は 1.4 ns）。オブジェクトを返す呼び出し（490 か所）の受け取りは、まねた経路で 13.4 → 6.4 ns で、呼び出し全体（42〜54 ns）の 13〜17%。どちらも実装していない。
+- 1 回の時間: static の getter 約 5 ns、数値を返す getter 8.6 ns、構造体を返す getter 38.6 ns（同じオブジェクトの 2 回目以降は約 10.7 ns）、親が 4 段ある `position` 96.9 ns とその代入 134.4 ns、`name` 401 ns、`GetComponent<T>` 340 ns。大半はエンジンの中の時間。
+- エンジンが返すハンドルは強参照で、ロックを通る経路はない。

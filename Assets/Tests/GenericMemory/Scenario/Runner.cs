@@ -18,7 +18,9 @@ namespace GenericMemory
 	/// With -generic-memory-checks it runs <see cref="AsyncChecks"/> and writes what each check ended with;
 	/// -generic-memory-interfaces does the same with <see cref="InterfaceChecks"/>, -generic-memory-comparers with
 	/// <see cref="ComparerChecks"/>, and -generic-memory-interface-bench
-	/// times the kernels of <see cref="InterfaceBench"/>; -generic-memory-speed-bench those of <see cref="SpeedBench"/>.
+	/// times the kernels of <see cref="InterfaceBench"/>; -generic-memory-speed-bench those of <see cref="SpeedBench"/>;
+	/// -generic-memory-numeric-bench those of <see cref="NumericBench"/>; -generic-memory-engine-bench those of
+	/// <see cref="EngineBench"/>.
 	/// -generic-memory-reflection writes the lines of <see cref="ReflectionChecks"/>.
 	/// -generic-memory-race &lt;depth&gt; runs only the race of threads of those checks, over a tree of types that deep.
 	/// -generic-memory-propname &lt;threads&gt; runs <see cref="ReflectionChecks.PropertyNameRace"/>: that many threads read
@@ -63,6 +65,8 @@ namespace GenericMemory
 		bool _interfaces;
 		bool _interfaceBench;
 		bool _speedBench;
+		bool _numericBench;
+		bool _engineBench;
 		bool _comparers;
 		bool _sharing;
 		bool _reflection;
@@ -153,10 +157,12 @@ namespace GenericMemory
 			_interfaces = Array.IndexOf(args, "-generic-memory-interfaces") >= 0;
 			_interfaceBench = Array.IndexOf(args, "-generic-memory-interface-bench") >= 0;
 			_speedBench = Array.IndexOf(args, "-generic-memory-speed-bench") >= 0;
+			_numericBench = Array.IndexOf(args, "-generic-memory-numeric-bench") >= 0;
+			_engineBench = Array.IndexOf(args, "-generic-memory-engine-bench") >= 0;
 			_comparers = Array.IndexOf(args, "-generic-memory-comparers") >= 0;
 			_sharing = Array.IndexOf(args, "-generic-memory-sharing") >= 0;
 			_reflection = Array.IndexOf(args, "-generic-memory-reflection") >= 0;
-			if (_checks || _interfaces || _interfaceBench || _speedBench || _comparers || _sharing || _reflection || _race >= 0 || _propertyNames >= 0)
+			if (_checks || _interfaces || _interfaceBench || _speedBench || _numericBench || _engineBench || _comparers || _sharing || _reflection || _race >= 0 || _propertyNames >= 0)
 			{
 				_pattern = "Checks";
 			}
@@ -186,7 +192,7 @@ namespace GenericMemory
 			{
 				return;
 			}
-			if (_interfaceBench || _speedBench)
+			if (_interfaceBench || _speedBench || _numericBench || _engineBench)
 			{
 				if (_frame == 5)
 				{
@@ -198,6 +204,15 @@ namespace GenericMemory
 					if (_speedBench)
 					{
 						SpeedBench.Run(text);
+					}
+					if (_numericBench)
+					{
+						NumericBench.Pointers = Array.IndexOf(Arguments(), "-generic-memory-numeric-pointers") >= 0;
+						NumericBench.Run(text);
+					}
+					if (_engineBench)
+					{
+						EngineBench.Run(text);
 					}
 					File.WriteAllText(_output, text.ToString());
 					_pattern = null;

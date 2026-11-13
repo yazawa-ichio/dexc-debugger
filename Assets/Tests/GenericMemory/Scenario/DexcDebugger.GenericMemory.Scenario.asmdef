@@ -2,11 +2,13 @@
   "name": "DexcDebugger.GenericMemory.Scenario",
   "rootNamespace": "GenericMemory",
   "references": [
-    "UniTask"
+    "UniTask",
+    "Unity.Burst",
+    "Unity.Mathematics"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
-  "allowUnsafeCode": false,
+  "allowUnsafeCode": true,
   "overrideReferences": false,
   "precompiledReferences": [],
   "autoReferenced": false,

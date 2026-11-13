@@ -14,6 +14,10 @@ namespace GenericMemory.Editor
 	/// own, so that it never takes the place of the project's own app on a device. Every setting that is changed for the
 	/// build is put back, also one that had no entry before. Nothing is built unless Android is the active build target:
 	/// this never moves the Editor to another platform.
+	/// The last argument of <see cref="Run"/> is more arguments for il2cpp, which is how flags reach the C++ compiler and
+	/// the linker of libil2cpp.so: "--compiler-flags=-O3 --linker-flags=-flto=thin". An option is given once for each
+	/// flag (a value with a comma in it is one flag, not a list). They go through the Player settings
+	/// (additionalIl2CppArgs), the only place the build reads them from, and what was there before is put back.
 	/// </summary>
 	public static class GenericMemoryAndroidBuild
 	{
@@ -21,7 +25,7 @@ namespace GenericMemory.Editor
 		const string ScenarioDefine = "GENERIC_MEMORY_SCENARIO";
 
 		/// <summary>Builds Logs/UnityTests/GenericMemory/&lt;label&gt;/GenericMemory.apk. Returns one line that says how it went.</summary>
-		public static string Run(string variant, string il2cpp, string label, string applicationId, string stripping = "High", string defines = null)
+		public static string Run(string variant, string il2cpp, string label, string applicationId, string stripping = "High", string defines = null, string il2cppArgs = null)
 		{
 			if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
 			{
@@ -51,6 +55,7 @@ namespace GenericMemory.Editor
 			var hadBatching = Batching(settings, "Android") >= 0;
 			var bundle = EditorUserBuildSettings.buildAppBundle;
 			var export = EditorUserBuildSettings.exportAsGoogleAndroidProject;
+			var additional = PlayerSettings.GetAdditionalIl2CppArgs();
 
 			Environment.SetEnvironmentVariable("UNITY_IL2CPP_PATH", il2cpp);
 			Environment.SetEnvironmentVariable("GENERIC_MEMORY_VARIANT", variant);
@@ -62,6 +67,10 @@ namespace GenericMemory.Editor
 				PlayerSettings.SetManagedStrippingLevel(target, (ManagedStrippingLevel)Enum.Parse(typeof(ManagedStrippingLevel), stripping));
 				EditorUserBuildSettings.buildAppBundle = false;
 				EditorUserBuildSettings.exportAsGoogleAndroidProject = false;
+				if (!string.IsNullOrEmpty(il2cppArgs))
+				{
+					PlayerSettings.SetAdditionalIl2CppArgs(string.IsNullOrEmpty(additional) ? il2cppArgs : additional + " " + il2cppArgs);
+				}
 				var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
 				{
 					scenes = new[] { ScenePath },
@@ -82,6 +91,10 @@ namespace GenericMemory.Editor
 				EditorUserBuildSettings.exportAsGoogleAndroidProject = export;
 				PlayerSettings.SetApplicationIdentifier(target, identifier);
 				PlayerSettings.productName = product;
+				if (!string.IsNullOrEmpty(il2cppArgs))
+				{
+					PlayerSettings.SetAdditionalIl2CppArgs(additional);
+				}
 				if (hadLevel)
 				{
 					PlayerSettings.SetManagedStrippingLevel(target, level);
