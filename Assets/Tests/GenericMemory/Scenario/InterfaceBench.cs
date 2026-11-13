@@ -37,6 +37,24 @@ namespace GenericMemory
 			}
 		}
 
+		// An interface that is not generic, on a class that is not: the third of its three.
+		sealed class PlainMeter : IDisposable, ICloneable, IMeter
+		{
+			public int Read()
+			{
+				return 5;
+			}
+
+			public void Dispose()
+			{
+			}
+
+			public object Clone()
+			{
+				return this;
+			}
+		}
+
 		static IList<Pinner> s_list;
 		static IReadOnlyList<Pinner> s_readOnly;
 		static IReadOnlyList<IEntity> s_variant;
@@ -46,6 +64,7 @@ namespace GenericMemory
 		static IDictionary<int, Pinner> s_map;
 		static object s_object;
 		static object s_arrayObject;
+		static object s_plain;
 		static Meter<Pinner> s_meter;
 		static IMeter s_meterInterface;
 
@@ -69,6 +88,7 @@ namespace GenericMemory
 			s_map = map;
 			s_object = list;
 			s_arrayObject = items;
+			s_plain = new PlainMeter();
 			s_meter = new FixedMeter<Pinner> { Reading = 3 };
 			s_meterInterface = s_meter;
 			Report(text, "itf.list.count", ListCount);
@@ -85,6 +105,9 @@ namespace GenericMemory
 			Report(text, "cast.is.variant", IsVariant);
 			Report(text, "cast.is.arrayVariant", IsArrayVariant);
 			Report(text, "cast.is.miss", IsMiss);
+			Report(text, "cast.is.plain", IsPlain);
+			Report(text, "cast.is.plainMiss", IsPlainMiss);
+			Report(text, "cast.is.plainList", IsPlainList);
 		}
 
 		static void Report(StringBuilder text, string name, Func<long> kernel)
@@ -268,6 +291,49 @@ namespace GenericMemory
 			for (var at = 0; at < Count; at++)
 			{
 				if (s_object is IDictionary<int, Pinner>)
+				{
+					sum++;
+				}
+			}
+			Sink.Add(sum);
+			return Count;
+		}
+
+		// The casts to interfaces that are not generic: the search they replace is short, so the table has less to win.
+		static long IsPlain()
+		{
+			var sum = 0;
+			for (var at = 0; at < Count; at++)
+			{
+				if (s_plain is IMeter)
+				{
+					sum++;
+				}
+			}
+			Sink.Add(sum);
+			return Count;
+		}
+
+		static long IsPlainMiss()
+		{
+			var sum = 0;
+			for (var at = 0; at < Count; at++)
+			{
+				if (s_plain is IComparable)
+				{
+					sum++;
+				}
+			}
+			Sink.Add(sum);
+			return Count;
+		}
+
+		static long IsPlainList()
+		{
+			var sum = 0;
+			for (var at = 0; at < Count; at++)
+			{
+				if (s_object is System.Collections.IList)
 				{
 					sum++;
 				}

@@ -6,7 +6,7 @@ usage: e-android-run.py install <label>...
        e-android-run.py checks <label> <mode>...                    results/checks/<label>.<mode>.txt
        e-android-run.py bench <result name> <rounds> <condition>... results/<result name>/<time of this call>/
   <label>      a folder of Logs/UnityTests/GenericMemory that e-android-build.sh made (android.json: the application id)
-  <mode>       checks, reflection, interfaces, comparers or sharing
+  <mode>       checks, reflection, interfaces, comparers, sharing or nulltests
   <condition>  <label>[:<name>]  the Player and the name the condition has in the tables (the label when left out).
                The same label under two names measures the same app twice: the difference is the noise.
   E_BENCH_MODES="kernels itf speed numeric first start"   what a round runs (all of it by default); "engine" is the

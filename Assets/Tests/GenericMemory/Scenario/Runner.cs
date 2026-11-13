@@ -25,7 +25,8 @@ namespace GenericMemory
 	/// -generic-memory-race &lt;depth&gt; runs only the race of threads of those checks, over a tree of types that deep.
 	/// -generic-memory-propname &lt;threads&gt; runs <see cref="ReflectionChecks.PropertyNameRace"/>: that many threads read
 	/// the names of the properties of every loaded type at the same moment.
-	/// -generic-memory-sharing runs <see cref="SharingChecks"/>, like -generic-memory-interfaces.
+	/// -generic-memory-sharing runs <see cref="SharingChecks"/>, like -generic-memory-interfaces, and
+	/// -generic-memory-nulltests runs <see cref="NullTestChecks"/>.
 	/// With -generic-memory-names a measured pattern also writes, beside its output, every class and method the runtime made.
 	/// On Android the arguments come from the intent or from a file, and an output that is not a full path is a file of
 	/// the app's own folder: see <see cref="Arguments"/>.
@@ -69,6 +70,7 @@ namespace GenericMemory
 		bool _engineBench;
 		bool _comparers;
 		bool _sharing;
+		bool _nullTests;
 		bool _reflection;
 		int _race = -1;
 		int _propertyNames = -1;
@@ -161,8 +163,9 @@ namespace GenericMemory
 			_engineBench = Array.IndexOf(args, "-generic-memory-engine-bench") >= 0;
 			_comparers = Array.IndexOf(args, "-generic-memory-comparers") >= 0;
 			_sharing = Array.IndexOf(args, "-generic-memory-sharing") >= 0;
+			_nullTests = Array.IndexOf(args, "-generic-memory-nulltests") >= 0;
 			_reflection = Array.IndexOf(args, "-generic-memory-reflection") >= 0;
-			if (_checks || _interfaces || _interfaceBench || _speedBench || _numericBench || _engineBench || _comparers || _sharing || _reflection || _race >= 0 || _propertyNames >= 0)
+			if (_checks || _interfaces || _interfaceBench || _speedBench || _numericBench || _engineBench || _comparers || _sharing || _nullTests || _reflection || _race >= 0 || _propertyNames >= 0)
 			{
 				_pattern = "Checks";
 			}
@@ -284,7 +287,7 @@ namespace GenericMemory
 				}
 				return;
 			}
-			if (_interfaces || _comparers || _sharing)
+			if (_interfaces || _comparers || _sharing || _nullTests)
 			{
 				if (_frame == 5)
 				{
@@ -299,6 +302,11 @@ namespace GenericMemory
 					{
 						SharingChecks.Run(text);
 						failed += SharingChecks.Failed;
+					}
+					if (_nullTests)
+					{
+						NullTestChecks.Run(text);
+						failed += NullTestChecks.Failed;
 					}
 					if (_comparers)
 					{

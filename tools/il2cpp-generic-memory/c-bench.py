@@ -9,7 +9,8 @@ usage: c-bench.py <result name> <runs> <condition>...
                  whose libil2cpp has .local/c/patch-paircache.py (GENERIC_MEMORY_PAIR_CACHE).
 The conditions take turns: every one runs once, then every one runs a second time, and so on. What else the machine
 does while this runs then falls on all of them alike.
-  C_BENCH_MODES="kernels itf speed first start"   what to run (all of it by default)
+  C_BENCH_MODES="kernels itf speed first start"   what to run (all of it by default); "engine" is the bench of
+                                                   calls into the engine (EngineBench.cs), run only when named here
   C_BENCH_FIRST="ListUse DictUse ..."              the patterns whose first use is timed, 200 types each
 
 Why this is not a shell loop around "timeout <Player>": a Player of this project that has written its result takes
@@ -140,6 +141,8 @@ def main():
                     player_run(label, switches, 300, output("itf"), ["-generic-memory-interface-bench"])
                 elif mode == "speed":
                     player_run(label, switches, 600, output("speed"), ["-generic-memory-speed-bench"])
+                elif mode == "engine":
+                    player_run(label, switches, 600, output("engine"), ["-generic-memory-engine-bench"])
                 elif mode == "first":
                     for pattern in patterns:
                         player_run(label, switches, 120, output("first." + pattern), ["-generic-memory-pattern", pattern, "-generic-memory-n", "200"])

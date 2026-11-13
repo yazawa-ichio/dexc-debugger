@@ -78,6 +78,7 @@ IL2CPP の Player は、ジェネリック型の具象型（`List<Foo>` など�
 | `CanonicalizerLocals.cs` | 段階 `enum` |
 | `LinqSharer.cs` | 段階 `linq` |
 | `AsyncEraser.cs` | 段階 `async`／`unitask` |
+| `NullTestExpander.cs` | 段階 `nulltest`（速度のための段階。`il2cpp-speed` ブランチ） |
 | `Verifier.cs` | 書き換えた本体を書き出す前に確かめる（名指ししたメンバーが見つかること、スタックの深さ） |
 | `Il2CppLazyMetadataCheck.cs` | ビルドせずに、パッチがこの Editor の libil2cpp に両方の形で当たり、2 度当てても変わらないことを確かめる |
 
@@ -92,6 +93,7 @@ IL の段階:
 | `free` | 型引数を見ないメソッド（`Count`、インデクサなど）を `List<object>` の文脈で呼ぶ。`list[i]` が遅くなるので採っていない | 変えない |
 | `hoist`、`hoistall` | ジェネリッククラスのメソッドを型の外の静的メソッドへ移す。VM の遅延化があれば上積みがない | 移したメソッドがリフレクションで元の型から見えなくなる |
 | `async`、`unitask` | UniTask のステートマシンを寄せる（製品の ILPostProcessor の元になった試作） | — |
+| `nulltest` | エンジンのオブジェクト（`UnityEngine.Object`）と `null` の比較、`if (x)` を、その場で答える。メモリではなく速度のための段階（下の「速度の最適化」） | 変えない |
 
 VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hoist` より前に置く。
 
@@ -106,6 +108,7 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 | `InterfaceChecks.cs`（90 件） | インターフェース呼び出し、キャスト、変性、配列 |
 | `ComparerChecks.cs`（36 件） | 既定の比較子を寄せた時の動き |
 | `SharingChecks.cs`（58 件） | `enum`／`linq` が型の同一性を変えていないこと |
+| `NullTestChecks.cs`（26 件） | エンジンのオブジェクトと `null` の比較の答え（null、生きているオブジェクト、破棄済みのオブジェクト）。期待する答えを固定で書いてあり、段階 `nulltest` なしのビルドではエンジンの演算子を、ありのビルドでは書き換えを確かめる |
 | `Bench.cs`、`InterfaceBench.cs`、`SpeedBench.cs` | 速度のカーネル |
 | `NumericBench.cs`、`NumericKernels.cs`、`NumericKernelsUnchecked.cs`、`NumericBurst.cs`、`NumericNative.cpp` | 数値と SIMD のベンチ。同じ処理を、ふつうの C#、検査なしの C#（`e-numeric-unchecked.py` が書く。手で直さない）、Burst、C++ のソースプラグイン、クラスライブラリで実行し、結果の一致を確かめてから測る。`NumericNative.cpp` は、C++ コンパイラに `GENERIC_MEMORY_NATIVE` の定義が渡った時だけ中身がある |
 | `Il2CppSetOptionAttribute.cs` | 検査を外す属性の、このアセンブリの中だけの写し（il2cpp は名前で見つける） |
@@ -115,7 +118,7 @@ VM の遅延化に重ねる採用案は `comparers+enum+linq`。`enum` は `hois
 | Runner の引数 | すること |
 |---|---|
 | `-generic-memory-pattern <名前> -generic-memory-n <数>` | パターンの型を `数` 個使い、増えたメタデータを書く。`-generic-memory-names` を足すと、作られたクラスとメソッドの名前も書く |
-| `-generic-memory-checks`、`-generic-memory-reflection`、`-generic-memory-interfaces`、`-generic-memory-comparers`、`-generic-memory-sharing` | 上の検証を実行する（`checks` は `AsyncChecks`） |
+| `-generic-memory-checks`、`-generic-memory-reflection`、`-generic-memory-interfaces`、`-generic-memory-comparers`、`-generic-memory-sharing`、`-generic-memory-nulltests` | 上の検証を実行する（`checks` は `AsyncChecks`） |
 | `-generic-memory-bench`、`-generic-memory-interface-bench`、`-generic-memory-speed-bench` | 速度のカーネルを測る |
 | `-generic-memory-numeric-bench`（`-generic-memory-numeric-pointers` で Burst を関数ポインタでも呼ぶ）、`-generic-memory-engine-bench` | 数値と SIMD のベンチ、エンジン呼び出しのベンチを測る |
 | `-generic-memory-race <深さ>` | リフレクションの検証のうち、競合の検査だけを回す。型の木を `深さ` 段たどる（深さ 2 なら、1 回の実行で 117 回の競合）。失敗した時は、どの型のどの一覧が何個違ったかを書く |
@@ -137,7 +140,7 @@ Android では、引数はインテントの `unity` の追加情報（`am start
 | `libil2cpp/` | 計測用のカウンタ（`GenericMemoryCounters.h`、`apply-counters.py`）。`apply-lazy-interfaces.py` は製品に入る前の試作で、今の形には使わない |
 | `Census/`、`rows.py`、`sharing.py` | ビルド済みの DLL と il2cpp の出力から、型やメソッドを数える |
 | `WeaverHost/` | IL の段階を Unity の外で実行する。`Assets` の同じソースをコンパイルする |
-| `c-bench.py`、`c-bench.sh`、`c-stats.py`、`c-final.sh`、`m-bench.py` | 速度の計測と集計。条件を交互に実行して、最良値、中央値、幅を出す |
+| `c-bench.py`、`c-bench.sh`、`c-stats.py`、`c-final.sh`、`m-bench.py` | 速度の計測と集計。条件を交互に実行して、最良値、中央値、幅を出す。`C_BENCH_MODES` に `engine` を入れると、エンジン呼び出しのベンチも回す（集計は `e-stats.py` が読める） |
 | `c-build.py`、`c-relink.py`、`c-measure.py` | 速度の検証用。il2cpp とコンパイラの引数を変えたビルド、生成された C++ の一部だけを差し替えた Player |
 | `a-run.sh`、`b-names-run.sh`、`bench.sh`、`bench.py` | 4 桁の組での実行、名前つきの一覧、以前の速度の計測 |
 | `d-android-switch.sh`、`d-android-build.sh`、`d-android-keep.py` | Android の実機確認。ビルドターゲットを Android にする、Editor のロックの中で Android の Player をビルドする、そのビルドがどの libil2cpp をコンパイルしたかを確かめてシンボルつきのライブラリを残す |
@@ -146,6 +149,7 @@ Android では、引数はインテントの `unity` の追加情報（`am start
 | `e-android-build.sh`、`e-android-keep.py` | C++ コンパイラの指定を変えた Android のビルド（`GENERIC_MEMORY_BUILD_IL2CPP_ARGS="--compiler-flags=-O3"`）。ビルドの dag から、実際に渡った指定を書き出す |
 | `e-android-run.py`、`e-stats.py` | 接続した端末で、条件をラウンドごとに交互に測る（`bench`）。毎回の温度とスロットリングも記録する。`e-stats.py` が条件を並べた表にする |
 | `e-numeric-unchecked.py` | `NumericKernels.cs` から、検査なしの版（`NumericKernelsUnchecked.cs`）を書く |
+| `speed/array-walk.sh`、`array-walk-kernel.cpp`、`array-walk-main.cpp`、`array-walk-player.S` | 配列を添字で回すループを、接続した Android の端末で単体で測る。Player と同じ指定でコンパイルしたループと、Player の機械語そのままのループを、要素のオブジェクトの並びを変えて比べる（`-O3` で遅くなる件の調査用） |
 | `speed/cast-cache-test.cpp`、`cast-cache-test.sh` | キャストのキャッシュの単体の負荷試験。ランタイムの外でヘッダーだけをコンパイルし、複数スレッドが同じ場所を奪い合う条件で、当たりの答えが全部正しいことを確かめる。この PC（MSVC）と、接続した Android の実機（NDK の clang、arm64）で動く |
 
 `a-`、`b-`、`c-`、`d-`、`e-`、`m-` の接頭辞は、検証を並行で進めた時の持ち主の印で、役割の区別ではない。
@@ -194,6 +198,7 @@ Android では、引数はインテントの `unity` の追加情報（`am start
 | 手 | 状態 | 切り替え方 |
 |---|---|---|
 | キャストのキャッシュ（`Native~/Il2CppCastCache.h`） | 入っている | ビルド時の環境変数 `IL2CPP_CAST_CACHE=0` で外す |
+| エンジンのオブジェクトの null 比較の展開（IL の段階 `nulltest`） | 段階として入っている。ほかの IL の段階と同じで、計測用のビルドで指定した時だけ走る。Windows で検証済み、Android は実機で未実行（下の節） | 段階の指定（`GENERIC_MEMORY_VARIANT`、`--weave`）に `nulltest` を入れる／入れない |
 | 小さいメソッドへの `AggressiveInlining`（IL） | 採っていない。効くのは小さいメソッドの呼び出しだけで、1 回あたり 0.4〜1.4 ns（`list[i]` で 1.57 → 0.95 ns）。LINQ、インターフェース呼び出し、仮想呼び出しは変わらず、DLL は 4.2% 増える。BCL まで書き換える経路も要る。試作は `.local/c/weaver/Speed.cs`（Git の外） | — |
 | sealed／final 化（IL） | 採っていない。フラグを足して変わるのは仮想呼び出しの 5%（プロジェクトのコードでは 463 か所のうち 19 か所）で、インターフェース呼び出しは変わらない | — |
 
@@ -207,9 +212,17 @@ Android では、引数はインテントの `unity` の追加情報（`am start
 | 失敗するキャスト | 29.4 | 37.7 | 6.7 |
 | `List` への変性つきのインターフェース呼び出し | 39.0 | 57.5 | 10.5 |
 
-- 遅延化がキャストと変性つきの呼び出しに足した負担を打ち消し、パッチなしより速くなる。配列への変性つきの呼び出し（12.2 → 15.5）と、変性なしの呼び出しは変わらない。
+- 遅延化がキャストと変性つきの呼び出しに足した負担を打ち消し、パッチなしより速くなる。変性なしの呼び出しは変わらない。
+- 配列への変性つきの呼び出し（`itf.array.variantIndex`）は、当時「パッチなし 12.2 → パッチあり 15.5」と測れたが、パッチのせいではなかった。このカーネルは、ランタイムが同じでもビルドごとに約 12.2 と約 15.2 のどちらかになる（2026-11-13、同じランタイムで IL の段階だけを変えた 4 本: 12.18／15.25／15.02／12.19。段階の有無と向きが合わない）。コードの配置で変わる値として読む。
 - 表は 1 つのキーに 1 か所しか持たない。同じ場所に当たる 2 組のクラスを交互に使うと覚え直しになり、探索と同じ速さに戻る。
 - キャッシュを外したビルドは、差し込みがない時よりキャストが 1〜6 ns 遅い（探索を関数に分けた分。雑音の幅と同じ程度）。
+- ジェネリックでないインターフェースへのキャストも、キャッシュで速くなる（2026-11-13、Windows x64、7 回の最良値、ns。カーネルは `InterfaceBench` の `cast.is.plain*`）。元の探索が短いので差は小さいが、遅くなる形は無かった。このカーネルは同じ組を繰り返し判定するので、表が必ず当たる。キャッシュに一番有利な条件での値である。
+
+| | 遅延化だけ | 遅延化＋キャッシュ | キャッシュを定義で外す（差し込みは残る） |
+|---|---:|---:|---:|
+| 当たる（3 つあるインターフェースの 3 つ目） | 8.9 | 6.5 | 11.4 |
+| 外れる | 12.2 | 6.7 | 16.9 |
+| `List<T>` を `IList` として判定 | 11.8 | 6.5 | 14.7 |
 - 型あたりのメタデータは変わらない（静的な表 128 KB が増えるだけ）。
 - 確かめたこと: 検証 5 種が、スイッチつきの形の 4 つの組と、製品の形のキャッシュあり・なしで通る。製品の形での繰り返し（リフレクション 60 回、インターフェース 30 回、型の同一性 20 回）で失敗なし。`speed/cast-cache-test` は x64 と arm64 の実機で、版を見ない読み手が誤答する条件でも誤答 0 回。
 - Android の実機（arm64、Pixel 3 XL）で、キャッシュを入れた常時オンのランタイムに IL の書き換えを重ねた Player がビルドでき、検証 5 種が通った。インターフェースの検証の繰り返し 40 回と、競合の検査 35,100 回で失敗は 0 回だった。
@@ -233,6 +246,39 @@ Android の実機（arm64、Pixel 3 XL、`-Os`）での速度（5 ラウンド�
 - インターフェースへのキャストは、どちらの形でも約 1 ns 遅く測れた。足した命令（比較 1 つ）では説明がつかず、原因は切り分けていない。この端末では、ライブラリの中のコードの位置が変わるだけで、関係のない小さいカーネルが 0.4〜0.8 ns 動く。
 - 確かめたこと: Android と Windows で検証 5 種が通る。結果は `results/e-fix2`、`results/e-eng4`。
 
+### エンジンのオブジェクトの null 比較の展開（段階 `nulltest`、`NullTestExpander.cs`）
+
+`UnityEngine.Object` の `x == null`、`x != null`、`if (x)` は演算子の呼び出しで、その先が 3 段の呼び出し（`CompareBaseObjects` → `IsNativeObjectAlive` → `GetCachedPtr`）になっている。il2cpp はファイルをまたいでインライン化しないので、どれも実際の呼び出しになる。答えは「参照が null か、オブジェクトのエンジン側が無くなっている（`m_CachedPtr` が 0）」である。
+
+- **すること**: `UnityEngine.CoreModule` にクラス `UnityEngine.GenericMemoryNullTest`（`IsNull` と `IsAlive`、インライン指定つき）を足し、右辺が `null` のリテラルの比較と、bool への変換を、そこへ向け直す。il2cpp はインライン指定のあるメソッドの複製を、呼ぶ側のファイルごとに書く。
+- **元のまま残す形**: オブジェクト同士の比較、`null` が左にある比較、`null` と演算子の呼び出しの間に別の経路が合流する比較。エンジンのモジュール（`UnityEngine.*Module`）の中の比較にも触れない（`CoreModule` に書くのは足したクラスだけ）。
+- **数**: リンク前の全コードで、比較 1,834 か所と変換 159 か所を書き換え、220 か所を残す。Player に入るコード（リンカーが削った後）では、1,123 か所のうち 1,002 か所。
+- **版が変わった時の止め方**: 演算子と、その下の 3 つのメソッドの本体を、段階を書いた時の形（6000.3.20f1）と照らす。1 つでも違えば、何も書き換えずにビルドを止める。
+- **クラスを別にした理由**: 判定のメソッドを `UnityEngine.Object` に置くと、このクラスに静的コンストラクタがあるので、比較のたびに「静的コンストラクタが済んだか」の確認（読み出し 2 つと分岐 1 つ）が残る。
+- **注意**: 足したクラスは `UnityEngine.Object` の非公開フィールドを読む。il2cpp はフィールドの公開範囲を見ないので通る（Android と Windows でビルド済み）。
+
+確かめたこと（Windows x64、2026-11-13）:
+
+- `NullTestChecks`（26 件）が、段階なしの Player 3 本と、段階ありの Player 2 本（単独、採用済みの `comparers+enum+linq` との重ね）で通る。期待する答えは固定で書いてあるので、段階なしで通ることが「期待値がエンジンの演算子と合っている」、段階ありで通ることが「書き換えが同じ答えを返す」の確認になる。破棄済みのオブジェクト（参照は null でなく、演算子は null と答える）を含む。
+- 既存の検証 5 種が、段階ありの 2 本で通る。
+
+速度（Windows x64、条件を交互に 15 回、最良値、ns）:
+
+| | 段階なし | `nulltest` | `comparers+enum+linq` | 3 つに `nulltest` を重ねる |
+|---|---:|---:|---:|---:|
+| `objects[i] != null`（`null.before`） | 2.99 | 0.94 | 2.99 | 0.95 |
+| 同じ判定を手で書いた形（`null.after`） | 0.70 | 0.71 | 0.71 | 0.71 |
+| 参照だけの比較（`null.reference`） | 0.62 | 0.62 | 0.62 | 0.62 |
+
+- ほかのカーネル（`Bench`、`InterfaceBench`、`EngineBench`）で、2 組とも同じ向きに動いたのは 2 つ。親が 4 段ある `position` の読み出し（26.6 → 28.2、26.9 → 28.5 ns、+6%）と、`static.init.after`（1.46 → 1.71 ns。この計測の刻み 1 つ分）。どちらも null 比較を含まないカーネルで、書き換えたメソッドと同じ生成ファイルにある。原因は切り分けていない。
+- 片方の組でだけ動いたものは、コードの配置による（上の `itf.array.variantIndex` の説明）。
+
+Android（arm64）:
+
+- 段階ありの Player がビルドできる（`e-v7-null`。段階なしの対は `e-v6-base`）。逆アセンブルでは、`objects[i] != null` のループが 51 命令から 26 命令になり、比較 1 回は 4 命令（参照の検査、フィールドの読み出し、比較、加算）で、呼び出しが無い。共有ジェネリックの中の比較（`T` が `UnityEngine.Object` の制約つき）も同じ形になる。
+- **実機での検証と速度は実行していない**（2026-11-13、端末がロックされていたため）。同じ判定を手で書いた形の実測は 10.1 → 2.3 ns（下の節）。
+- iOS では確かめていない。
+
 ## コンパイラの指定、SIMD、エンジン呼び出しの実測（2026-11-13、Pixel 3 XL、arm64）
 
 ここから採用を決めたものはない。判断の材料として数値を残す。条件を 5 ラウンド交互に測った中央値（数値のベンチは最良値）で、ランタイムは遅延化だけを入れたもの。道具は `e-android-build.sh`、`e-android-run.py`、`e-stats.py`。
@@ -247,9 +293,14 @@ Android の実機（arm64、Pixel 3 XL、`-Os`）での速度（5 ラウンド�
 | `-O2` | +3.6% | 変わらず | LINQ の重い方 −5%、キャスト +4〜12% |
 | `-O3` | +11.0% | 変わらず | 速い 7、遅い 8、±2% 以内 24 |
 | `-O3` と `-flto=thin` | +29.5% | 約 2 倍 | 速い 22（`list[i]` −43〜−56%、`IList<T>` 経由 −23〜−41%）、遅い 5、±2% 以内 13 |
+| `-O2` と `-flto=thin` | +16.7%（キャッシュ入りのランタイムでの比較。79.7 → 93.1 MB） | 約 2 倍（20 分 18 秒） | **未計測**（ビルドと、指定が 603 個のコンパイル全部に渡ったことの確認まで。ラベルは `e-v5-o2lto`） |
 
-- 配列を添字で回すループが、`-O3` と ThinLTO で 55% 遅くなる（2.31 → 3.6 ns）。`-O2` では出ない。原因は分かっていない。
-- 起動時間は変わらない。検証 5 種は全条件で通る（各 1 回）。`-O2` と ThinLTO の組み合わせは試していない。
+- `-O2` と ThinLTO の組でも、`list[i]` のループから `get_Item` の呼び出しが消える（逆アセンブルで確認）。ファイルをまたぐインライン化は `-O3` でなくても効く。配列を添字で回すループは、`-O3` と同じ「範囲検査のない詰まった形」になる。
+- 配列を添字で回すループが、`-O3` と ThinLTO で 55% 遅くなる（2.31 → 3.6 ns）。`-O2` では出ない。**原因は確定していない。** 分かったこと（`speed/array-walk.sh`。同じループを端末で単体で測る）:
+  - `-O3` のコードは仕事が減っている。範囲検査が消え、1 要素あたり 10 命令から 7 命令になる。パス 16 回分が丸ごと展開されるが、展開は速さに関係しない（1 つのループを 16 回まわす形と同じ速さ）。
+  - Player の 2 つのループの機械語をそのまま単体で測ると、どちらが速いかは、要素のオブジェクトの並び方で入れ替わる。詰まって並ぶ時（32 バイト間隔）は `-O3` の形が 22% 速く、64〜192 バイトの等間隔では 12〜23% 遅く、不規則な並びでは 3〜9% 速い。配列そのものがキャッシュに収まる大きさなら差が無い。
+  - Player で出た +57% は単体では再現していない（単体での最大は +23%）。`SpeedBench` は Player での実際の並びを結果に書くようにしてある（`layout` の行）。その並びでの確認は、端末のロックのため未実行。
+- 起動時間は変わらない。検証 5 種は、計測した 4 条件の全部で通る（各 1 回）。`-O2` と ThinLTO の組み合わせは、検証も計測も実行していない。
 
 ### SIMD と演算（4,096 要素、1 要素あたりの ns）
 
@@ -272,6 +323,6 @@ Player に入るコード（エンジンとクラスライブラリを除く 38,
 
 - 呼び出しを規則で消す書き換え（ループの外へ出す、読み直しを消す、2 回を 1 回の API にまとめる）が当てはまるのは 56 か所（2.6%）だけ。
 - 数値や構造体をやり取りする呼び出しの橋渡しは最小に近く、`-O3` でも ThinLTO でも変わらない。
-- 余地があるのは 2 か所。エンジンのオブジェクトの null 比較（1,121 か所）は 10.1 → 2.3 ns（参照だけの比較は 1.4 ns）。オブジェクトを返す呼び出し（490 か所）の受け取りは、まねた経路で 13.4 → 6.4 ns で、呼び出し全体（42〜54 ns）の 13〜17%。どちらも実装していない。
+- 余地があるのは 2 か所。エンジンのオブジェクトの null 比較（1,121 か所）は 10.1 → 2.3 ns（参照だけの比較は 1.4 ns）。オブジェクトを返す呼び出し（490 か所）の受け取りは、まねた経路で 13.4 → 6.4 ns で、呼び出し全体（42〜54 ns）の 13〜17%。null 比較は IL の段階 `nulltest` にした（上の節）。受け取りの方は実装していない。
 - 1 回の時間: static の getter 約 5 ns、数値を返す getter 8.6 ns、構造体を返す getter 38.6 ns（同じオブジェクトの 2 回目以降は約 10.7 ns）、親が 4 段ある `position` 96.9 ns とその代入 134.4 ns、`name` 401 ns、`GetComponent<T>` 340 ns。大半はエンジンの中の時間。
 - エンジンが返すハンドルは強参照で、ロックを通る経路はない。

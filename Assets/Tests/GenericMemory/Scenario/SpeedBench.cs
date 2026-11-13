@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using GenericMemory.Data;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine.Profiling;
 using UnityEngine.Scripting;
 
@@ -64,6 +65,9 @@ namespace GenericMemory
 			}
 			text.Append("same\tbasic\t").Append(BasicTyped(s_source) == BasicErased(s_source) ? "true" : "false").Append('\n');
 			text.Append("same\theavy\t").Append(HeavyTyped(s_source) == HeavyErased(s_source) ? "true" : "false").Append('\n');
+			// Where the items of the walks are in memory, as offsets from the lowest one: what a walk costs depends on it.
+			text.Append("layout\titems\t").Append(Layout()).Append('\n');
+			text.Append("layout\tarray\t").Append(((long)UnsafeUtility.As<E0000[], IntPtr>(ref s_array) & 0xFFFF).ToString(CultureInfo.InvariantCulture)).Append('\n');
 
 			Report(text, "list.add", AddList);
 			Report(text, "list.index", IndexList);
@@ -78,6 +82,21 @@ namespace GenericMemory
 			Report(text, "linq.basic.erased", BasicErasedLoop);
 			Report(text, "linq.heavy.typed", HeavyTypedLoop);
 			Report(text, "linq.heavy.erased", HeavyErasedLoop);
+		}
+
+		static string Layout()
+		{
+			var lowest = long.MaxValue;
+			for (var at = 0; at <= Mask; at++)
+			{
+				lowest = Math.Min(lowest, (long)UnsafeUtility.As<E0000, IntPtr>(ref s_items[at]));
+			}
+			var text = new StringBuilder();
+			for (var at = 0; at <= Mask; at++)
+			{
+				text.Append(at == 0 ? "" : ",").Append(((long)UnsafeUtility.As<E0000, IntPtr>(ref s_items[at]) - lowest).ToString(CultureInfo.InvariantCulture));
+			}
+			return text.ToString();
 		}
 
 		static void Report(StringBuilder text, string name, Func<long> kernel)

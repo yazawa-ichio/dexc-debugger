@@ -46,6 +46,9 @@ namespace GenericMemory.Editor
 						case "linq":
 							new LinqSharer(program, log).Run();
 							break;
+						case "nulltest":
+							new NullTestExpander(program, log).Run();
+							break;
 						case "unitask":
 							// Names a build whose difference is in the source of UniTask, not in a rewrite.
 							break;
