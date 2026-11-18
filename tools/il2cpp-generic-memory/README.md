@@ -4,7 +4,7 @@ IL2CPP の Player は、ジェネリック型の具象型（`List<Foo>` など�
 
 - ブランチ: メモリの最適化は `il2cpp-generic-memory`、速度の最適化は `il2cpp-speed`（メモリのブランチの上に積む）。
 - Unity 6000.3.20f1。動かして確かめたのは Windows x64 と、Android の実機（arm64、Pixel 3 XL）の IL2CPP の Player。iOS では動かしていない。
-- 2026-11-11 までの計測の記録と、採らなかった手法の説明は [record.md](record.md)（数値と「ファイル」の表は古い）。Editor を使わないビルドの手順は [offline/README.md](offline/README.md)。
+- 2026-11-11 までの計測の記録と、採らなかった手法の説明は [record.md](record.md)（数値と「ファイル」の表は古い）。Editor を使わないビルドの手順は [offline/README.md](offline/README.md)。Android のゲームに何をどこまで入れるかの推奨は [android.md](android.md)。
 
 ## どこに何があるか
 
@@ -22,6 +22,7 @@ IL2CPP の Player は、ジェネリック型の具象型（`List<Foo>` など�
 | 知りたいこと | 読むもの |
 |---|---|
 | 結局どこまで減り、速くなったか | このファイルの「最終結果」（Android の実機、2026-11-14） |
+| Android のゲームに、どれをどこまで入れるか | [android.md](android.md)（推奨と見積もり、Android での入れ方） |
 | パッチが libil2cpp の何を変えるか | `Native~/Il2CppLazyMetadata.h` と `Native~/Il2CppLazyInterfaces.h` の冒頭のコメント。次に `Il2CppLazyMetadata.cs` の `Apply` |
 | パッチがどのソースのどの行に入るか | `Il2CppLazyMetadata.cs` の `Apply`（下の「libil2cpp への差し込み」の表） |
 | IL の書き換えが何をするか | `GenericMemoryWeaver.cs` の `Run`（段階の振り分け）。次に各段階のクラスの冒頭のコメント |
